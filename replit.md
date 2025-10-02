@@ -8,6 +8,19 @@ The system is built as a full-stack web application with a React frontend and Ex
 
 Preferred communication style: Simple, everyday language.
 
+# Recent Changes
+
+## October 2025 - Billing & Financial Management Complete
+- **PostgreSQL Migration**: Fully migrated from MemStorage to PostgreSQL with Drizzle ORM, all data persists across restarts
+- **Time Tracking**: Manual time entry form and timer functionality with start/stop/pause, billable/non-billable tracking
+- **Expense Recording**: Expense creation with categories (Court Fees, Travel, Printing, Postage, Consultation, Other), receipt tracking
+- **GST-Compliant Invoicing**: Indian GST-compliant invoice generation with:
+  - Matter-specific line item selection (time entries + expenses)
+  - Automatic GST calculation: CGST (9%) + SGST (9%) for same state, IGST (18%) for different states
+  - Auto-generated invoice numbers (INV-YYYY-MM-####)
+  - Invoice status tracking (draft/sent/paid/overdue)
+- **Schema Enhancements**: Added state and gstNumber fields to organizations and parties for GST compliance
+
 # System Architecture
 
 ## Frontend Architecture
@@ -56,15 +69,16 @@ Preferred communication style: Simple, everyday language.
 
 **Data Model:**
 The schema includes comprehensive legal practice entities:
-- Organizations (multi-tenancy support for solo, chambers, firm)
+- Organizations (multi-tenancy support for solo, chambers, firm) with state and gstNumber for GST compliance
 - Users with role-based access (owner, partner, associate, clerk, client)
 - Matters (cases) with CNR integration and court details
-- Parties (clients, opposing counsel, witnesses, advocates)
+- Parties (clients, opposing counsel, witnesses, advocates) with state field for GST calculations
 - Hearings with date/time tracking
 - Dockets for case proceedings
 - Tasks with assignments and due dates
-- Time entries for billing
-- Expenses and Invoices for financial management
+- Time entries for billing with rate, duration, and billable flag
+- Expenses with categories, amounts, tax, and billable tracking
+- Invoices with GST-compliant calculations, line items (JSONB array), status tracking, and due dates
 - Files/Documents with category organization
 - Court Alerts for automated notifications
 - AI Analysis Results storage
@@ -115,6 +129,31 @@ The schema includes comprehensive legal practice entities:
 - IST (Indian Standard Time) timezone handling
 - Relative date formatting for user-friendly displays
 
+## Billing & Financial Management
+
+**Time Tracking:**
+- Manual time entry form with matter selection, description, date/time, hourly rate, billable flag
+- Built-in timer with start/stop/pause functionality for real-time tracking
+- Automatic duration calculation from start/end times
+- Integration with invoice generation for billable time
+
+**Expense Recording:**
+- Predefined expense categories: Court Fees, Travel, Printing, Postage, Consultation, Other
+- Amount and tax/GST tracking with numeric validation
+- Matter-specific expense assignment
+- Billable/non-billable flag for client billing
+- Receipt reference field for documentation
+
+**GST-Compliant Invoicing:**
+- **Indian GST Compliance**: Automatic tax calculation based on organization and client states
+  - Same state: CGST (9%) + SGST (9%) = 18% total
+  - Different state: IGST (18%)
+- **Matter-Specific Billing**: Fetches only selected matter's billable time entries and expenses
+- **Line Items**: Stored as JSONB array with type, description, date, amount for audit trail
+- **Invoice Numbering**: Auto-generated format INV-YYYY-MM-#### (sequential per month)
+- **Status Workflow**: Draft → Sent → Paid/Overdue with due date tracking
+- **Organization GST Number**: Displayed on invoices for compliance
+
 **Key Architectural Decisions:**
 
 1. **Local AI Processing**: Uses Ollama running locally instead of cloud AI services for data privacy and BCI compliance considerations, with fallback to Google GenAI
@@ -128,3 +167,7 @@ The schema includes comprehensive legal practice entities:
 5. **Progressive Enhancement**: Mobile-responsive design with sidebar drawer on small screens, full sidebar on desktop
 
 6. **BCI Safe Mode**: Configurable mode to ensure Bar Council of India compliance for professional conduct rules
+
+7. **GST Compliance**: State-based tax calculation ensures invoices meet Indian tax requirements, critical for legal practice billing
+
+8. **Matter-Scoped Billing**: Query filters ensure lawyers only bill clients for work on their specific matters, preventing cross-matter billing errors (professional ethics requirement)
