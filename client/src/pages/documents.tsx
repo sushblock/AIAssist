@@ -1,20 +1,147 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useRef } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/date-utils";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function Documents() {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [showValidationDialog, setShowValidationDialog] = useState(false);
+  const [showBatesDialog, setShowBatesDialog] = useState(false);
+  const [selectedPdf, setSelectedPdf] = useState<File | null>(null);
+  const [validationResult, setValidationResult] = useState<any>(null);
+  const [batesedPdfUrl, setBatesedPdfUrl] = useState<string | null>(null);
+  
+  // Bates numbering form state
+  const [batesPrefix, setBatesPrefix] = useState("");
+  const [batesStartNumber, setBatesStartNumber] = useState("1");
+  const [batesSuffix, setBatesSuffix] = useState("");
+  const [batesPosition, setBatesPosition] = useState("bottom-right");
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const { data: files = [], isLoading } = useQuery({
     queryKey: ["/api/files"],
   });
+  
+  // Validate PDF mutation
+  const validatePdfMutation = useMutation({
+    mutationFn: async (pdfBase64: string) => {
+      return await apiRequest("/api/pdf/validate", "POST", { pdfBase64 });
+    },
+    onSuccess: (data) => {
+      setValidationResult(data);
+      toast({
+        title: data.isValid ? "✓ Validation Passed" : "✗ Validation Failed",
+        description: data.isValid 
+          ? "PDF meets court filing requirements" 
+          : "PDF has issues that need attention",
+        variant: data.isValid ? "default" : "destructive",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Validation Failed",
+        description: "Could not validate PDF. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Add Bates numbering mutation
+  const addBatesMutation = useMutation({
+    mutationFn: async (params: { pdfBase64: string; prefix: string; startNumber: number; suffix: string; position: string }) => {
+      return await apiRequest("/api/pdf/add-bates", "POST", params);
+    },
+    onSuccess: (data) => {
+      const blob = new Blob([Uint8Array.from(atob(data.pdfBase64), c => c.charCodeAt(0))], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      setBatesedPdfUrl(url);
+      
+      toast({
+        title: "✓ Bates Numbering Added",
+        description: "Your PDF is ready for download",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Bates Numbering Failed",
+        description: "Could not add Bates numbers. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Handle PDF file selection for validation
+  const handleValidatePdfSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && file.type === "application/pdf") {
+      setSelectedPdf(file);
+      setValidationResult(null);
+      setShowValidationDialog(true);
+      
+      // Convert to base64 and validate
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64 = e.target?.result as string;
+        const pdfBase64 = base64.split(',')[1]; // Remove data:application/pdf;base64, prefix
+        validatePdfMutation.mutate(pdfBase64);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      toast({
+        title: "Invalid File",
+        description: "Please select a PDF file",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Handle PDF file selection for Bates numbering
+  const handleBatesPdfSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && file.type === "application/pdf") {
+      setSelectedPdf(file);
+      setBatesedPdfUrl(null);
+      setShowBatesDialog(true);
+    } else {
+      toast({
+        title: "Invalid File",
+        description: "Please select a PDF file",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Apply Bates numbering
+  const handleApplyBates = async () => {
+    if (!selectedPdf) return;
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const base64 = e.target?.result as string;
+      const pdfBase64 = base64.split(',')[1];
+      
+      addBatesMutation.mutate({
+        pdfBase64,
+        prefix: batesPrefix,
+        startNumber: parseInt(batesStartNumber) || 1,
+        suffix: batesSuffix,
+        position: batesPosition,
+      });
+    };
+    reader.readAsDataURL(selectedPdf);
+  };
 
   const filteredFiles = files.filter((file: any) => {
     const matchesSearch = file.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -171,6 +298,278 @@ export default function Documents() {
           </div>
         </CardContent>
       </Card>
+
+      {/* PDF Validation & Court Filing Compliance */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="border-2 border-primary/30 bg-gradient-to-r from-primary/5 to-transparent">
+          <CardContent className="p-6">
+            <div className="flex items-start space-x-4">
+              <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
+                <i className="fas fa-file-check text-2xl text-primary-foreground"></i>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-foreground mb-2">PDF Validation Toolkit</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Validate PDFs for Indian court filing compliance. Check margins, fonts, page size, and formatting standards.
+                </p>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept="application/pdf"
+                  onChange={handleValidatePdfSelect}
+                  data-testid="input-validate-pdf"
+                />
+                <Button 
+                  variant="outline" 
+                  onClick={() => fileInputRef.current?.click()}
+                  data-testid="button-validate-pdf"
+                >
+                  <i className="fas fa-shield-check mr-2"></i>
+                  Validate PDF
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 border-success/30 bg-gradient-to-r from-success/5 to-transparent">
+          <CardContent className="p-6">
+            <div className="flex items-start space-x-4">
+              <div className="w-12 h-12 bg-success rounded-lg flex items-center justify-center flex-shrink-0">
+                <i className="fas fa-hashtag text-2xl" style={{ color: "hsl(var(--success-foreground))" }}></i>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-foreground mb-2">Bates Numbering</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Add sequential Bates numbers to PDF pages for court filing tracking and document organization.
+                </p>
+                <input
+                  type="file"
+                  className="hidden"
+                  accept="application/pdf"
+                  onChange={handleBatesPdfSelect}
+                  id="bates-pdf-input"
+                  data-testid="input-bates-pdf"
+                />
+                <Button 
+                  variant="outline"
+                  onClick={() => document.getElementById('bates-pdf-input')?.click()}
+                  data-testid="button-add-bates"
+                >
+                  <i className="fas fa-sort-numeric-down mr-2"></i>
+                  Add Bates Numbers
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* PDF Validation Dialog */}
+      <Dialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>PDF Validation Results</DialogTitle>
+            <DialogDescription>
+              {selectedPdf?.name}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {validatePdfMutation.isPending ? (
+            <div className="flex flex-col items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              <p className="mt-4 text-muted-foreground">Validating PDF...</p>
+            </div>
+          ) : validationResult ? (
+            <div className="space-y-4">
+              {/* Overall Status */}
+              <div className={`p-4 rounded-lg ${validationResult.isValid ? 'bg-success/10 border border-success' : 'bg-destructive/10 border border-destructive'}`}>
+                <div className="flex items-center space-x-2">
+                  <i className={`fas ${validationResult.isValid ? 'fa-check-circle text-success' : 'fa-exclamation-circle text-destructive'} text-2xl`}></i>
+                  <div>
+                    <h3 className="font-semibold">
+                      {validationResult.isValid ? 'Validation Passed' : 'Validation Failed'}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {validationResult.isValid ? 'PDF meets court filing requirements' : 'PDF has issues that need attention'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Errors */}
+              {validationResult.errors && validationResult.errors.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-destructive mb-2">❌ Errors (Must Fix)</h4>
+                  <ul className="space-y-1">
+                    {validationResult.errors.map((error: string, i: number) => (
+                      <li key={i} className="text-sm text-muted-foreground pl-4">• {error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Warnings */}
+              {validationResult.warnings && validationResult.warnings.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-warning mb-2">⚠️ Warnings (Recommended)</h4>
+                  <ul className="space-y-1">
+                    {validationResult.warnings.map((warning: string, i: number) => (
+                      <li key={i} className="text-sm text-muted-foreground pl-4">• {warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Validation Report */}
+              {validationResult.reportText && (
+                <div>
+                  <h4 className="font-semibold mb-2">Full Report</h4>
+                  <pre className="bg-muted p-4 rounded text-xs overflow-x-auto">
+                    {validationResult.reportText}
+                  </pre>
+                </div>
+              )}
+
+              <Button onClick={() => setShowValidationDialog(false)} className="w-full">
+                Close
+              </Button>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bates Numbering Dialog */}
+      <Dialog open={showBatesDialog} onOpenChange={setShowBatesDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Bates Numbering</DialogTitle>
+            <DialogDescription>
+              Configure Bates numbering for {selectedPdf?.name}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {!batesedPdfUrl ? (
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="bates-prefix">Prefix (Optional)</Label>
+                <Input
+                  id="bates-prefix"
+                  placeholder="e.g., DOC-"
+                  value={batesPrefix}
+                  onChange={(e) => setBatesPrefix(e.target.value)}
+                  data-testid="input-bates-prefix"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="bates-start">Start Number *</Label>
+                <Input
+                  id="bates-start"
+                  type="number"
+                  min="1"
+                  placeholder="1"
+                  value={batesStartNumber}
+                  onChange={(e) => setBatesStartNumber(e.target.value)}
+                  data-testid="input-bates-start"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="bates-suffix">Suffix (Optional)</Label>
+                <Input
+                  id="bates-suffix"
+                  placeholder="e.g., -PG"
+                  value={batesSuffix}
+                  onChange={(e) => setBatesSuffix(e.target.value)}
+                  data-testid="input-bates-suffix"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="bates-position">Position</Label>
+                <Select value={batesPosition} onValueChange={setBatesPosition}>
+                  <SelectTrigger id="bates-position" data-testid="select-bates-position">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bottom-right">Bottom Right</SelectItem>
+                    <SelectItem value="bottom-center">Bottom Center</SelectItem>
+                    <SelectItem value="bottom-left">Bottom Left</SelectItem>
+                    <SelectItem value="top-right">Top Right</SelectItem>
+                    <SelectItem value="top-center">Top Center</SelectItem>
+                    <SelectItem value="top-left">Top Left</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex space-x-2">
+                <Button
+                  onClick={handleApplyBates}
+                  disabled={addBatesMutation.isPending}
+                  className="flex-1"
+                  data-testid="button-apply-bates"
+                >
+                  {addBatesMutation.isPending ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin mr-2"></i>
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-check mr-2"></i>
+                      Apply Bates Numbers
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowBatesDialog(false)}
+                  data-testid="button-cancel-bates"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="p-4 bg-success/10 border border-success rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <i className="fas fa-check-circle text-success text-2xl"></i>
+                  <div>
+                    <h3 className="font-semibold">Bates Numbers Added!</h3>
+                    <p className="text-sm text-muted-foreground">Your PDF is ready for download</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex space-x-2">
+                <a
+                  href={batesedPdfUrl}
+                  download={selectedPdf?.name?.replace('.pdf', '_bates.pdf')}
+                  className="flex-1"
+                >
+                  <Button className="w-full" data-testid="button-download-bates">
+                    <i className="fas fa-download mr-2"></i>
+                    Download PDF
+                  </Button>
+                </a>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowBatesDialog(false);
+                    setBatesedPdfUrl(null);
+                  }}
+                  data-testid="button-close-bates"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Documents List */}
       <Tabs defaultValue="grid" className="space-y-4">
