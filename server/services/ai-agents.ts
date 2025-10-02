@@ -96,7 +96,7 @@ Respond with ONLY valid JSON matching this exact structure:
 No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
 
       const response = await ollama.chat({
-        model: 'llama3.1',
+        model: 'llama3.2',
         messages: [{
           role: 'user',
           content: prompt
@@ -174,7 +174,7 @@ Respond with ONLY valid JSON matching this exact structure:
 No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
 
       const response = await ollama.chat({
-        model: 'llama3.1',
+        model: 'llama3.2',
         messages: [{
           role: 'user',
           content: prompt
@@ -244,7 +244,7 @@ Respond with ONLY valid JSON matching this exact structure:
 No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
 
       const response = await ollama.chat({
-        model: 'llama3.1',
+        model: 'llama3.2',
         messages: [{
           role: 'user',
           content: prompt
@@ -325,7 +325,7 @@ Respond with ONLY valid JSON matching this exact structure:
 No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
 
       const response = await ollama.chat({
-        model: 'llama3.1',
+        model: 'llama3.2',
         messages: [{
           role: 'user',
           content: prompt
@@ -397,7 +397,7 @@ Respond with ONLY valid JSON matching this exact structure:
 No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
 
       const response = await ollama.chat({
-        model: 'llama3.1',
+        model: 'llama3.2',
         messages: [{
           role: 'user',
           content: prompt

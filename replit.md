@@ -94,9 +94,9 @@ The schema includes comprehensive legal practice entities:
 **AI & Machine Learning:**
 - Ollama (local AI) for document analysis, case summarization, and smart search
 - Agentic workflow design for multi-step AI operations
-- Uses llama3.1 model running on localhost:11434
+- Uses llama3.2 model running on localhost:11434
 - AI capabilities: document classification, date extraction, action item identification, urgency assessment
-- Note: Requires Ollama installed locally with llama3.1 model pulled
+- Note: Requires Ollama installed locally with llama3.2 model pulled
 
 **Court Integration:**
 - eCourts India API (eciapi.akshit.me) for case data retrieval
