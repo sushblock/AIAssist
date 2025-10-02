@@ -589,6 +589,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // PDF Validation & Court Filing Compliance
+  app.post("/api/pdf/validate", async (req, res) => {
+    try {
+      const { pdfBase64 } = req.body;
+      
+      if (!pdfBase64) {
+        return res.status(400).json({ message: "PDF data is required" });
+      }
+
+      const { pdfValidationService } = await import("./services/pdf-validation");
+      const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+      
+      const validation = await pdfValidationService.validatePDF(pdfBuffer);
+      const report = pdfValidationService.generateValidationReport(validation);
+
+      res.json({
+        ...validation,
+        reportText: report
+      });
+    } catch (error) {
+      console.error("Error validating PDF:", error);
+      res.status(500).json({ message: "Failed to validate PDF" });
+    }
+  });
+
+  app.post("/api/pdf/add-bates", async (req, res) => {
+    try {
+      const { pdfBase64, prefix, startNumber, suffix, position, fontSize } = req.body;
+      
+      if (!pdfBase64) {
+        return res.status(400).json({ message: "PDF data is required" });
+      }
+
+      if (!startNumber || startNumber < 1) {
+        return res.status(400).json({ message: "Valid start number is required" });
+      }
+
+      const { pdfValidationService } = await import("./services/pdf-validation");
+      const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+      
+      const batesOptions = {
+        prefix: prefix || '',
+        startNumber: parseInt(startNumber.toString()),
+        suffix: suffix || '',
+        position: position || 'bottom-right',
+        fontSize: fontSize ? parseInt(fontSize.toString()) : 10
+      };
+
+      const batesedPdfBuffer = await pdfValidationService.addBatesNumbering(pdfBuffer, batesOptions);
+      const batesedPdfBase64 = batesedPdfBuffer.toString('base64');
+
+      res.json({
+        pdfBase64: batesedPdfBase64,
+        message: "Bates numbering added successfully"
+      });
+    } catch (error) {
+      console.error("Error adding Bates numbering:", error);
+      res.status(500).json({ message: "Failed to add Bates numbering" });
+    }
+  });
+
   // Invoices
   app.get("/api/invoices", async (req, res) => {
     try {
