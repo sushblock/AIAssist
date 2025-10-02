@@ -73,6 +73,7 @@ export interface IStorage {
 
   // Expenses
   getExpensesByMatter(matterId: string): Promise<Expense[]>;
+  getExpensesByOrg(orgId: string): Promise<Expense[]>;
   createExpense(expense: InsertExpense): Promise<Expense>;
 
   // Invoices
@@ -555,6 +556,12 @@ export class MemStorage implements IStorage {
   async getExpensesByMatter(matterId: string): Promise<Expense[]> {
     return Array.from(this.expenses.values())
       .filter(expense => expense.matterId === matterId && !expense.isDeleted);
+  }
+
+  async getExpensesByOrg(orgId: string): Promise<Expense[]> {
+    return Array.from(this.expenses.values())
+      .filter(expense => expense.orgId === orgId && !expense.isDeleted)
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
   }
 
   async createExpense(expenseData: InsertExpense): Promise<Expense> {
@@ -1219,6 +1226,17 @@ export class DbStorage implements IStorage {
         .where(and(eq(expenses.matterId, matterId), eq(expenses.isDeleted, false)));
     } catch (error) {
       console.error("Error getting expenses by matter:", error);
+      return [];
+    }
+  }
+
+  async getExpensesByOrg(orgId: string): Promise<Expense[]> {
+    try {
+      return await db.select().from(expenses)
+        .where(and(eq(expenses.orgId, orgId), eq(expenses.isDeleted, false)))
+        .orderBy(desc(expenses.date));
+    } catch (error) {
+      console.error("Error getting expenses by org:", error);
       return [];
     }
   }

@@ -13,8 +13,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/date-utils";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertTimeEntrySchema } from "@shared/schema";
-import type { Invoice, Matter, TimeEntry } from "@shared/schema";
+import { insertTimeEntrySchema, insertExpenseSchema } from "@shared/schema";
+import type { Invoice, Matter, TimeEntry, Expense } from "@shared/schema";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -34,10 +34,32 @@ const timeEntryFormSchema = z.object({
 
 type TimeEntryFormData = z.infer<typeof timeEntryFormSchema>;
 
+const expenseFormSchema = z.object({
+  matterId: z.string().min(1, "Matter is required"),
+  category: z.string().min(1, "Category is required"),
+  description: z.string().min(1, "Description is required"),
+  date: z.string().min(1, "Date is required"),
+  amount: z.string()
+    .min(1, "Amount is required")
+    .refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
+      message: "Amount must be a valid positive number",
+    }),
+  tax: z.string()
+    .optional()
+    .refine((val) => !val || (!isNaN(parseFloat(val)) && parseFloat(val) >= 0), {
+      message: "Tax must be a valid non-negative number",
+    }),
+  isBillable: z.boolean(),
+  receipt: z.string().optional(),
+});
+
+type ExpenseFormData = z.infer<typeof expenseFormSchema>;
+
 export default function Billing() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isTimeEntryDialogOpen, setIsTimeEntryDialogOpen] = useState(false);
+  const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
   const [timerDuration, setTimerDuration] = useState(0);
   
   const { toast } = useToast();
@@ -49,6 +71,10 @@ export default function Billing() {
 
   const { data: timeEntries = [] } = useQuery<TimeEntry[]>({
     queryKey: ["/api/time-entries"],
+  });
+
+  const { data: expenses = [] } = useQuery<Expense[]>({
+    queryKey: ["/api/expenses"],
   });
 
   const { data: matters = [] } = useQuery<Matter[]>({
@@ -66,6 +92,20 @@ export default function Billing() {
       durationHours: "",
       rate: "5000",
       isBillable: true,
+    },
+  });
+
+  const expenseForm = useForm<ExpenseFormData>({
+    resolver: zodResolver(expenseFormSchema),
+    defaultValues: {
+      matterId: "",
+      category: "",
+      description: "",
+      date: new Date().toISOString().split('T')[0],
+      amount: "",
+      tax: "",
+      isBillable: true,
+      receipt: "",
     },
   });
 
@@ -110,6 +150,49 @@ export default function Billing() {
       toast({
         title: "Error",
         description: error.message || "Failed to create time entry",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createExpenseMutation = useMutation({
+    mutationFn: async (data: ExpenseFormData) => {
+      const amount = parseFloat(data.amount);
+      const tax = data.tax ? parseFloat(data.tax) : 0;
+      
+      if (isNaN(amount)) {
+        throw new Error("Invalid amount value");
+      }
+      if (data.tax && isNaN(tax)) {
+        throw new Error("Invalid tax value");
+      }
+      
+      const response = await apiRequest("POST", "/api/expenses", {
+        matterId: data.matterId,
+        category: data.category,
+        description: data.description,
+        date: new Date(data.date).toISOString(),
+        amount,
+        tax,
+        isBillable: data.isBillable,
+        receipt: data.receipt || null,
+      });
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      toast({
+        title: "Success",
+        description: "Expense created successfully",
+      });
+      setIsExpenseDialogOpen(false);
+      expenseForm.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create expense",
         variant: "destructive",
       });
     },
@@ -688,20 +771,260 @@ export default function Billing() {
         </TabsContent>
 
         <TabsContent value="expenses" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Expense Tracking</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8">
-                <i className="fas fa-receipt text-4xl text-muted-foreground mb-4"></i>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Expense Management</h3>
-                <p className="text-muted-foreground mb-4">Track and categorize your business expenses</p>
+          <div className="flex justify-end">
+            <Dialog open={isExpenseDialogOpen} onOpenChange={setIsExpenseDialogOpen}>
+              <DialogTrigger asChild>
                 <Button data-testid="button-add-expense">
                   <i className="fas fa-plus mr-2"></i>
                   Add Expense
                 </Button>
-              </div>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl" data-testid="dialog-expense-form">
+                <DialogHeader>
+                  <DialogTitle>Add Expense</DialogTitle>
+                </DialogHeader>
+                <Form {...expenseForm}>
+                  <form onSubmit={expenseForm.handleSubmit((data) => createExpenseMutation.mutate(data))} className="space-y-4">
+                    <FormField
+                      control={expenseForm.control}
+                      name="matterId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Matter</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="input-expense-matter">
+                                <SelectValue placeholder="Select matter" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {matters.map((matter: any) => (
+                                <SelectItem key={matter.id} value={matter.id}>
+                                  {matter.caseNo} - {matter.title}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={expenseForm.control}
+                      name="category"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Category</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="input-expense-category">
+                                <SelectValue placeholder="Select category" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="Court Fees">Court Fees</SelectItem>
+                              <SelectItem value="Travel">Travel</SelectItem>
+                              <SelectItem value="Printing">Printing</SelectItem>
+                              <SelectItem value="Postage">Postage</SelectItem>
+                              <SelectItem value="Consultation">Consultation</SelectItem>
+                              <SelectItem value="Other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={expenseForm.control}
+                      name="description"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Description</FormLabel>
+                          <FormControl>
+                            <Textarea 
+                              placeholder="Describe the expense..."
+                              {...field}
+                              data-testid="input-expense-description"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={expenseForm.control}
+                      name="date"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Date</FormLabel>
+                          <FormControl>
+                            <Input type="date" {...field} data-testid="input-expense-date" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField
+                        control={expenseForm.control}
+                        name="amount"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Amount (₹)</FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="number" 
+                                step="0.01"
+                                placeholder="0.00"
+                                {...field}
+                                data-testid="input-expense-amount"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={expenseForm.control}
+                        name="tax"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Tax/GST (₹)</FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="number" 
+                                step="0.01"
+                                placeholder="0.00"
+                                {...field}
+                                data-testid="input-expense-tax"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <FormField
+                      control={expenseForm.control}
+                      name="receipt"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Receipt/Reference</FormLabel>
+                          <FormControl>
+                            <Input 
+                              placeholder="Receipt number or reference"
+                              {...field}
+                              data-testid="input-expense-receipt"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={expenseForm.control}
+                      name="isBillable"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                          <FormControl>
+                            <Checkbox 
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="input-expense-billable"
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel>Billable</FormLabel>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="flex justify-end space-x-2">
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={() => setIsExpenseDialogOpen(false)}
+                        data-testid="button-cancel-expense"
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        type="submit" 
+                        disabled={createExpenseMutation.isPending}
+                        data-testid="button-submit-expense"
+                      >
+                        {createExpenseMutation.isPending ? "Creating..." : "Create Expense"}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Expenses</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {expenses.length === 0 ? (
+                <div className="text-center py-8">
+                  <i className="fas fa-receipt text-4xl text-muted-foreground mb-4"></i>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">No expenses recorded</h3>
+                  <p className="text-muted-foreground">Start tracking expenses to see them here</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {expenses.map((expense: any) => {
+                    const matter = matters.find((m: any) => m.id === expense.matterId);
+                    const totalAmount = parseFloat(expense.amount || "0") + parseFloat(expense.tax || "0");
+                    
+                    return (
+                      <div key={expense.id} className="flex items-center justify-between p-4 border border-border rounded-md" data-testid={`expense-${expense.id}`}>
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-1">
+                            <Badge variant="outline" className="text-xs" data-testid={`expense-category-${expense.id}`}>
+                              {expense.category}
+                            </Badge>
+                            {expense.isBillable && (
+                              <Badge variant="default" className="text-xs">
+                                Billable
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="font-medium text-foreground" data-testid={`expense-description-${expense.id}`}>
+                            {expense.description}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {formatDate(expense.date)} • {matter ? `${matter.caseNo} - ${matter.title}` : "Unknown matter"}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-foreground" data-testid={`expense-total-${expense.id}`}>
+                            {formatCurrency(totalAmount)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Amount: {formatCurrency(parseFloat(expense.amount || "0"))}
+                          </p>
+                          {parseFloat(expense.tax || "0") > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Tax: {formatCurrency(parseFloat(expense.tax || "0"))}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

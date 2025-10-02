@@ -9,6 +9,7 @@ import {
   insertHearingSchema,
   insertTaskSchema,
   insertTimeEntrySchema,
+  insertExpenseSchema,
   insertInvoiceSchema,
   insertFileSchema,
   insertCourtAlertSchema,
@@ -579,6 +580,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating time entry:", error);
       res.status(400).json({ message: "Failed to create time entry" });
+    }
+  });
+
+  // Expenses
+  app.get("/api/expenses", async (req, res) => {
+    try {
+      const orgId = await getCurrentOrgId();
+      const { matterId } = req.query;
+      
+      let expenses;
+      if (matterId) {
+        expenses = await storage.getExpensesByMatter(matterId as string);
+      } else {
+        expenses = await storage.getExpensesByOrg(orgId);
+      }
+
+      res.json(expenses);
+    } catch (error) {
+      console.error("Error fetching expenses:", error);
+      res.status(500).json({ message: "Failed to fetch expenses" });
+    }
+  });
+
+  app.post("/api/expenses", async (req, res) => {
+    try {
+      const orgId = await getCurrentOrgId();
+      const userId = await getCurrentUserId();
+      
+      const expenseData = insertExpenseSchema.parse({
+        ...req.body,
+        orgId,
+        userId,
+        amount: req.body.amount?.toString(),
+        tax: req.body.tax?.toString(),
+        date: new Date(req.body.date),
+      });
+
+      const expense = await storage.createExpense(expenseData);
+      res.status(201).json(expense);
+    } catch (error) {
+      console.error("Error creating expense:", error);
+      res.status(400).json({ message: "Failed to create expense" });
     }
   });
 
