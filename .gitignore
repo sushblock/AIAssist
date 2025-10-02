@@ -1,6 +1,87 @@
-node_modules
-dist
+# --- Node / Package managers ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json.* # keep the main lockfile committed
+
+# --- Vite / Build outputs ---
+dist/
+.vite/                 # sometimes created by tooling
+node_modules/.vite/    # vite cache
+
+# --- Logs / Reports ---
+*.log
+logs/
+coverage/
+.nyc_output/
+
+# --- Env & secrets (keep only .env.example committed) ---
+.env
+.env.*                 # .env.local, .env.development, etc.
+!.env.example          # sample env for collaborators
+*.env.local
+*.secret
+*.secrets
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+*.jks
+serviceAccount*.json   # firebase/service account keys
+*.keystore
+
+# --- Databases / local data ---
+*.sqlite
+*.sqlite3
+*.db
+*.db3
+*.sqlite-journal
+*-journal
+*-wal
+*-shm
+
+# --- PWA / Workbox build artifacts (kept out of repo) ---
+workbox-*.js
+sw-*.js.map
+.sw-cache/
+.wb-build/
+.wrkbox/
+# keep your source SW (e.g., src/sw.js) checked in; ignore only generated files
+
+# --- IDE / Editors ---
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+.idea/
+*.iml
+
+# --- OS cruft ---
 .DS_Store
-server/public
-vite.config.ts.*
-*.tar.gz
+Thumbs.db
+Icon?
+ehthumbs.db
+
+# --- Temp / misc ---
+*.swp
+*.swo
+*.tmp
+*.temp
+*.bak
+
+# --- Framework/hosting metadata ---
+.vercel/
+.netlify/
+firebase-debug.log
+functions/node_modules/
+
+# --- Lint/formatter caches ---
+.eslintcache
+.stylelintcache
+
+# --- Storybook / tests (if added later) ---
+storybook-static/
+.vitest/
