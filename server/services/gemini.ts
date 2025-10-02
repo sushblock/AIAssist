@@ -1,6 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
+import { Ollama } from "ollama";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const ollama = new Ollama({ host: 'http://localhost:11434' });
 
 export interface DocumentAnalysisResult {
   documentType: string;
@@ -39,11 +39,11 @@ export interface CaseSummaryResult {
 
 export class GeminiService {
   /**
-   * Analyze a legal document using Gemini AI
+   * Analyze a legal document using Ollama AI
    */
   async analyzeDocument(documentContent: string, documentName?: string): Promise<DocumentAnalysisResult> {
     try {
-      const systemPrompt = `You are an expert legal document analyzer for Indian courts. Analyze the provided legal document and extract key information in a structured format.
+      const prompt = `You are an expert legal document analyzer for Indian courts. Analyze the provided legal document and extract key information in a structured format.
 
 Focus on:
 1. Document type identification (order, petition, affidavit, notice, etc.)
@@ -54,71 +54,53 @@ Focus on:
 6. Court details
 7. Urgency level assessment
 
-Provide analysis in JSON format with high confidence scores.`;
-
-      const userPrompt = `Analyze this legal document:
+Analyze this legal document:
 ${documentName ? `Document Name: ${documentName}\n` : ''}
 Content:
 ${documentContent}
 
-Extract and structure the key information focusing on Indian legal procedures and court requirements.`;
+Extract and structure the key information focusing on Indian legal procedures and court requirements.
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-pro",
-        config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "object",
-            properties: {
-              documentType: { type: "string" },
-              keyDates: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    date: { type: "string" },
-                    type: { type: "string" },
-                    description: { type: "string" }
-                  },
-                  required: ["date", "type", "description"]
-                }
-              },
-              actionItems: {
-                type: "array",
-                items: { type: "string" }
-              },
-              summary: { type: "string" },
-              parties: {
-                type: "array",
-                items: { type: "string" }
-              },
-              courtDetails: {
-                type: "object",
-                properties: {
-                  court: { type: "string" },
-                  judge: { type: "string" },
-                  caseNumber: { type: "string" }
-                }
-              },
-              urgency: {
-                type: "string",
-                enum: ["low", "medium", "high", "critical"]
-              },
-              confidence: { type: "number" }
-            },
-            required: ["documentType", "keyDates", "actionItems", "summary", "urgency", "confidence"]
-          }
-        },
-        contents: userPrompt,
+Respond with ONLY valid JSON matching this exact structure:
+{
+  "documentType": "string",
+  "keyDates": [
+    {
+      "date": "string",
+      "type": "string",
+      "description": "string"
+    }
+  ],
+  "actionItems": ["string"],
+  "summary": "string",
+  "parties": ["string"],
+  "courtDetails": {
+    "court": "string",
+    "judge": "string",
+    "caseNumber": "string"
+  },
+  "urgency": "low|medium|high|critical",
+  "confidence": 0.0-1.0
+}
+
+No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
+
+      const response = await ollama.chat({
+        model: 'llama3.1',
+        messages: [{
+          role: 'user',
+          content: prompt
+        }],
+        stream: false,
       });
 
-      const rawJson = response.text;
+      const rawJson = response.message.content.trim();
       if (!rawJson) {
         throw new Error("Empty response from AI model");
       }
 
-      return JSON.parse(rawJson) as DocumentAnalysisResult;
+      const cleaned = rawJson.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      return JSON.parse(cleaned) as DocumentAnalysisResult;
     } catch (error) {
       console.error("Error analyzing document:", error);
       throw new Error(`Failed to analyze document: ${error}`);
@@ -130,7 +112,7 @@ Extract and structure the key information focusing on Indian legal procedures an
    */
   async generateCaseSummary(matterDetails: any, documents: any[], parties: any[]): Promise<CaseSummaryResult> {
     try {
-      const systemPrompt = `You are an experienced Indian legal analyst. Generate a comprehensive case summary based on the provided matter details, documents, and party information.
+      const prompt = `You are an experienced Indian legal analyst. Generate a comprehensive case summary based on the provided matter details, documents, and party information.
 
 Provide:
 1. Executive summary
@@ -140,9 +122,9 @@ Provide:
 5. Timeline of significant events
 6. Risk assessment
 
-Be concise but thorough, focusing on actionable insights for Indian legal practice.`;
+Be concise but thorough, focusing on actionable insights for Indian legal practice.
 
-      const userPrompt = `Generate a case summary for:
+Generate a case summary for:
 
 MATTER DETAILS:
 Case Number: ${matterDetails.caseNo}
@@ -158,65 +140,45 @@ ${parties.map(p => `${p.role}: ${p.name} (${p.type})`).join('\n')}
 RECENT DOCUMENTS/ORDERS:
 ${documents.slice(0, 10).map(d => `${d.date}: ${d.title} - ${d.type}`).join('\n')}
 
-Provide a structured analysis focusing on legal strategy and case management for Indian courts.`;
+Provide a structured analysis focusing on legal strategy and case management for Indian courts.
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-pro",
-        config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "object",
-            properties: {
-              executiveSummary: { type: "string" },
-              keyIssues: {
-                type: "array",
-                items: { type: "string" }
-              },
-              currentStatus: { type: "string" },
-              nextSteps: {
-                type: "array",
-                items: { type: "string" }
-              },
-              timeline: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    date: { type: "string" },
-                    event: { type: "string" },
-                    significance: { type: "string" }
-                  },
-                  required: ["date", "event", "significance"]
-                }
-              },
-              riskAssessment: {
-                type: "object",
-                properties: {
-                  level: {
-                    type: "string",
-                    enum: ["low", "medium", "high"]
-                  },
-                  factors: {
-                    type: "array",
-                    items: { type: "string" }
-                  }
-                },
-                required: ["level", "factors"]
-              }
-            },
-            required: ["executiveSummary", "keyIssues", "currentStatus", "nextSteps", "timeline", "riskAssessment"]
-          }
-        },
-        contents: userPrompt,
+Respond with ONLY valid JSON matching this exact structure:
+{
+  "executiveSummary": "string",
+  "keyIssues": ["string"],
+  "currentStatus": "string",
+  "nextSteps": ["string"],
+  "timeline": [
+    {
+      "date": "string",
+      "event": "string",
+      "significance": "string"
+    }
+  ],
+  "riskAssessment": {
+    "level": "low|medium|high",
+    "factors": ["string"]
+  }
+}
+
+No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
+
+      const response = await ollama.chat({
+        model: 'llama3.1',
+        messages: [{
+          role: 'user',
+          content: prompt
+        }],
+        stream: false,
       });
 
-      const rawJson = response.text;
+      const rawJson = response.message.content.trim();
       if (!rawJson) {
         throw new Error("Empty response from AI model");
       }
 
-      return JSON.parse(rawJson) as CaseSummaryResult;
+      const cleaned = rawJson.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      return JSON.parse(cleaned) as CaseSummaryResult;
     } catch (error) {
       console.error("Error generating case summary:", error);
       throw new Error(`Failed to generate case summary: ${error}`);
@@ -241,7 +203,7 @@ Provide a structured analysis focusing on legal strategy and case management for
     }[];
   }> {
     try {
-      const systemPrompt = `You are a legal practice management AI assistant for Indian lawyers. Analyze the practice data and provide actionable insights for today's dashboard.
+      const prompt = `You are a legal practice management AI assistant for Indian lawyers. Analyze the practice data and provide actionable insights for today's dashboard.
 
 Focus on:
 1. Priority actions needed
@@ -249,9 +211,9 @@ Focus on:
 3. Risk mitigation
 4. Opportunities for efficiency
 
-Provide 2-4 concise, actionable insights relevant to Indian legal practice.`;
+Provide 2-4 concise, actionable insights relevant to Indian legal practice.
 
-      const userPrompt = `Analyze today's practice data:
+Analyze today's practice data:
 
 TODAY'S HEARINGS (${data.todaysHearings.length}):
 ${data.todaysHearings.map(h => `${h.time} - ${h.matter?.caseNo} - ${h.purpose}`).join('\n')}
@@ -264,49 +226,39 @@ ${data.recentAlerts.slice(0, 3).map(a => `${a.type}: ${a.title} - ${a.urgency}`)
 
 ACTIVE MATTERS: ${data.activeMatters.length} total
 
-Generate actionable insights for the Indian lawyer's attention.`;
+Generate actionable insights for the Indian lawyer's attention.
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "object",
-            properties: {
-              insights: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    type: {
-                      type: "string",
-                      enum: ["priority", "deadline", "opportunity", "risk"]
-                    },
-                    title: { type: "string" },
-                    message: { type: "string" },
-                    actionUrl: { type: "string" },
-                    urgency: {
-                      type: "string",
-                      enum: ["low", "medium", "high"]
-                    }
-                  },
-                  required: ["type", "title", "message", "urgency"]
-                }
-              }
-            },
-            required: ["insights"]
-          }
-        },
-        contents: userPrompt,
+Respond with ONLY valid JSON matching this exact structure:
+{
+  "insights": [
+    {
+      "type": "priority|deadline|opportunity|risk",
+      "title": "string",
+      "message": "string",
+      "actionUrl": "string (optional)",
+      "urgency": "low|medium|high"
+    }
+  ]
+}
+
+No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
+
+      const response = await ollama.chat({
+        model: 'llama3.1',
+        messages: [{
+          role: 'user',
+          content: prompt
+        }],
+        stream: false,
       });
 
-      const rawJson = response.text;
+      const rawJson = response.message.content.trim();
       if (!rawJson) {
         return { insights: [] };
       }
 
-      return JSON.parse(rawJson);
+      const cleaned = rawJson.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      return JSON.parse(cleaned);
     } catch (error) {
       console.error("Error generating dashboard insights:", error);
       return { insights: [] };
@@ -329,7 +281,7 @@ Generate actionable insights for the Indian lawyer's attention.`;
     metadata: Record<string, any>;
   }[]> {
     try {
-      const systemPrompt = `You are an intelligent legal search assistant for Indian legal practice. Analyze the user's natural language query and rank relevant legal entities by relevance.
+      const prompt = `You are an intelligent legal search assistant for Indian legal practice. Analyze the user's natural language query and rank relevant legal entities by relevance.
 
 Consider:
 1. Semantic similarity
@@ -337,9 +289,9 @@ Consider:
 3. Entity relationships
 4. Practical relevance for Indian legal practice
 
-Return ranked results with relevance scores.`;
+Return ranked results with relevance scores.
 
-      const userPrompt = `Search query: "${query}"
+Search query: "${query}"
 
 AVAILABLE MATTERS:
 ${context.matters.map(m => `ID: ${m.id}, Case: ${m.caseNo}, Title: ${m.title}, Stage: ${m.stage}, Subject: ${m.subject}`).join('\n')}
@@ -350,47 +302,40 @@ ${context.documents.map(d => `ID: ${d.id}, Name: ${d.name}, Category: ${d.catego
 AVAILABLE PARTIES:
 ${context.parties.map(p => `ID: ${p.id}, Name: ${p.name}, Role: ${p.role}, Type: ${p.type}`).join('\n')}
 
-Rank and return the most relevant results with explanations.`;
+Rank and return the most relevant results with explanations.
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "object",
-            properties: {
-              results: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    type: {
-                      type: "string",
-                      enum: ["matter", "party", "document", "task"]
-                    },
-                    id: { type: "string" },
-                    title: { type: "string" },
-                    summary: { type: "string" },
-                    relevanceScore: { type: "number" },
-                    metadata: { type: "object" }
-                  },
-                  required: ["type", "id", "title", "summary", "relevanceScore"]
-                }
-              }
-            },
-            required: ["results"]
-          }
-        },
-        contents: userPrompt,
+Respond with ONLY valid JSON matching this exact structure:
+{
+  "results": [
+    {
+      "type": "matter|party|document|task",
+      "id": "string",
+      "title": "string",
+      "summary": "string",
+      "relevanceScore": 0.0-1.0,
+      "metadata": {}
+    }
+  ]
+}
+
+No markdown formatting, no explanations outside the JSON. Return only the JSON object.`;
+
+      const response = await ollama.chat({
+        model: 'llama3.1',
+        messages: [{
+          role: 'user',
+          content: prompt
+        }],
+        stream: false,
       });
 
-      const rawJson = response.text;
+      const rawJson = response.message.content.trim();
       if (!rawJson) {
         return [];
       }
 
-      const parsed = JSON.parse(rawJson);
+      const cleaned = rawJson.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const parsed = JSON.parse(cleaned);
       return parsed.results || [];
     } catch (error) {
       console.error("Error performing smart search:", error);

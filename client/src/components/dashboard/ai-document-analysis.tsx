@@ -36,7 +36,7 @@ export default function AIDocumentAnalysis() {
               </div>
               <div>
                 <h2 className="text-xl font-semibold text-foreground">AI Document Analysis</h2>
-                <p className="text-sm text-muted-foreground">Powered by Google Gemini - Agentic Workflow</p>
+                <p className="text-sm text-muted-foreground">Powered by Local AI (Ollama) - Agentic Workflow</p>
               </div>
             </div>
 

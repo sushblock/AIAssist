@@ -41,7 +41,7 @@ export default function AIInsights() {
             <div className="flex-1">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-lg font-semibold text-foreground">AI-Powered Insights</h3>
-                <Badge variant="outline">Powered by Gemini</Badge>
+                <Badge variant="outline">Powered by Local AI (Ollama)</Badge>
               </div>
               <p className="text-sm text-muted-foreground">
                 Your intelligent assistant is analyzing your practice data...
@@ -63,7 +63,7 @@ export default function AIInsights() {
           <div className="flex-1">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-lg font-semibold text-foreground">AI-Powered Insights</h3>
-              <Badge variant="outline">Powered by Gemini</Badge>
+              <Badge variant="outline">Powered by Local AI (Ollama)</Badge>
             </div>
             <p className="text-sm text-muted-foreground mb-4">
               Your intelligent assistant has analyzed today's schedule and documents

@@ -214,7 +214,7 @@ export default function AiAnalysis() {
           <p className="text-muted-foreground mt-1">Leverage AI to analyze legal documents and generate insights</p>
         </div>
         <div className="flex items-center space-x-2 mt-4 md:mt-0">
-          <Badge variant="outline">Powered by Gemini 2.5 Pro</Badge>
+          <Badge variant="outline">Powered by Local AI (Ollama)</Badge>
           <Button variant="outline" data-testid="button-view-usage">
             <i className="fas fa-chart-line mr-2"></i>
             View Usage
