@@ -64,6 +64,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Organizations list (for dropdowns, etc.)
+  app.get("/api/organizations", async (req, res) => {
+    try {
+      const orgId = await getCurrentOrgId();
+      const org = await storage.getOrganization(orgId);
+      
+      if (!org) {
+        return res.json([]);
+      }
+      
+      res.json([org]);
+    } catch (error) {
+      console.error("Error fetching organizations:", error);
+      res.status(500).json({ message: "Failed to fetch organizations" });
+    }
+  });
+
+  // Current user
+  app.get("/api/user/current", async (req, res) => {
+    try {
+      const userId = await getCurrentUserId();
+      const user = await storage.getUserByUsername("adv.kumar");
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching current user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Users list (for dropdowns, assignments, etc.)
+  app.get("/api/users", async (req, res) => {
+    try {
+      const orgId = await getCurrentOrgId();
+      const users = await storage.getUsersByOrg(orgId);
+      
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
   // Dashboard stats
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
@@ -173,10 +220,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/matters", async (req, res) => {
     try {
+      const orgId = await getCurrentOrgId();
+      const leadCounselId = await getCurrentUserId();
+      
       const matterData = insertMatterSchema.parse({
         ...req.body,
-        orgId: getCurrentOrgId(),
-        leadCounselId: getCurrentUserId()
+        orgId,
+        leadCounselId
       });
 
       const matter = await storage.createMatter(matterData);
