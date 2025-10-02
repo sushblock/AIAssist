@@ -549,12 +549,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Time tracking
+  app.get("/api/time-entries", async (req, res) => {
+    try {
+      const userId = await getCurrentUserId();
+      const entries = await storage.getTimeEntriesByUser(userId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching time entries:", error);
+      res.status(500).json({ message: "Failed to fetch time entries" });
+    }
+  });
+
   app.post("/api/time-entries", async (req, res) => {
     try {
+      const orgId = await getCurrentOrgId();
+      const userId = await getCurrentUserId();
+      
       const entryData = insertTimeEntrySchema.parse({
         ...req.body,
-        orgId: getCurrentOrgId(),
-        userId: getCurrentUserId()
+        orgId,
+        userId,
+        rate: req.body.rate?.toString(),
+        startTime: req.body.startTime ? new Date(req.body.startTime) : undefined,
+        endTime: req.body.endTime ? new Date(req.body.endTime) : null,
       });
 
       const entry = await storage.createTimeEntry(entryData);

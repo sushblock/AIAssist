@@ -72,8 +72,8 @@ The schema includes comprehensive legal practice entities:
 **Service Layer Architecture:**
 - Separated business logic into dedicated services
 - ECourtService for eCourts API integration
-- AIAgentService/GeminiService for AI-powered analysis
-- Storage abstraction layer for database operations
+- AIAgentService with OllamaService for AI-powered analysis
+- DbStorage class implementing IStorage with full PostgreSQL persistence using Drizzle ORM
 
 ## External Dependencies
 

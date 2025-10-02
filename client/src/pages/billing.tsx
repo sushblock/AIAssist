@@ -1,24 +1,167 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { formatDate } from "@/lib/date-utils";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { insertTimeEntrySchema } from "@shared/schema";
+import type { Invoice, Matter, TimeEntry } from "@shared/schema";
+import { z } from "zod";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useAppStore } from "@/store/app-store";
+import { Clock } from "lucide-react";
+
+const timeEntryFormSchema = z.object({
+  matterId: z.string().min(1, "Matter is required"),
+  description: z.string().min(1, "Description is required"),
+  date: z.string().min(1, "Date is required"),
+  startTime: z.string().min(1, "Start time is required"),
+  endTime: z.string().optional(),
+  durationHours: z.string().optional(),
+  rate: z.string().min(1, "Rate is required"),
+  isBillable: z.boolean(),
+});
+
+type TimeEntryFormData = z.infer<typeof timeEntryFormSchema>;
 
 export default function Billing() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isTimeEntryDialogOpen, setIsTimeEntryDialogOpen] = useState(false);
+  const [timerDuration, setTimerDuration] = useState(0);
+  
+  const { toast } = useToast();
+  const { activeTimer, startTimer, stopTimer, pauseTimer } = useAppStore();
 
-  const { data: invoices = [], isLoading } = useQuery({
+  const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
   });
 
-  const { data: timeEntries = [] } = useQuery({
+  const { data: timeEntries = [] } = useQuery<TimeEntry[]>({
     queryKey: ["/api/time-entries"],
   });
+
+  const { data: matters = [] } = useQuery<Matter[]>({
+    queryKey: ["/api/matters"],
+  });
+
+  const form = useForm<TimeEntryFormData>({
+    resolver: zodResolver(timeEntryFormSchema),
+    defaultValues: {
+      matterId: "",
+      description: "",
+      date: new Date().toISOString().split('T')[0],
+      startTime: "",
+      endTime: "",
+      durationHours: "",
+      rate: "5000",
+      isBillable: true,
+    },
+  });
+
+  const createTimeEntryMutation = useMutation({
+    mutationFn: async (data: TimeEntryFormData) => {
+      const { date, startTime, endTime, durationHours, ...rest } = data;
+      
+      let duration: number;
+      if (durationHours) {
+        duration = parseFloat(durationHours) * 60;
+      } else if (startTime && endTime) {
+        const start = new Date(`${date}T${startTime}`);
+        const end = new Date(`${date}T${endTime}`);
+        duration = (end.getTime() - start.getTime()) / (1000 * 60);
+      } else {
+        throw new Error("Either duration or start/end time is required");
+      }
+
+      const startDateTime = new Date(`${date}T${startTime || "00:00"}`);
+      const endDateTime = endTime ? new Date(`${date}T${endTime}`) : null;
+
+      const response = await apiRequest("POST", "/api/time-entries", {
+        ...rest,
+        duration: Math.round(duration),
+        rate: parseFloat(data.rate),
+        startTime: startDateTime.toISOString(),
+        endTime: endDateTime?.toISOString() || null,
+      });
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
+      toast({
+        title: "Success",
+        description: "Time entry created successfully",
+      });
+      setIsTimeEntryDialogOpen(false);
+      form.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create time entry",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleTimerStop = async () => {
+    if (!activeTimer) return;
+    
+    const totalMinutes = Math.round((activeTimer.duration + (Date.now() - activeTimer.startTime)) / (1000 * 60));
+    
+    try {
+      await apiRequest("POST", "/api/time-entries", {
+        matterId: activeTimer.matterId,
+        description: activeTimer.description,
+        duration: totalMinutes,
+        rate: 5000,
+        isBillable: true,
+        startTime: new Date(activeTimer.startTime).toISOString(),
+        endTime: new Date().toISOString(),
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
+      stopTimer();
+      toast({
+        title: "Timer Stopped",
+        description: `Time entry created: ${Math.round(totalMinutes / 60)} hours ${totalMinutes % 60} minutes`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create time entry from timer",
+        variant: "destructive",
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (activeTimer) {
+      const interval = setInterval(() => {
+        const elapsed = activeTimer.duration + (Date.now() - activeTimer.startTime);
+        setTimerDuration(elapsed);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTimer]);
+
+  const formatDuration = (ms: number) => {
+    const hours = Math.floor(ms / (1000 * 60 * 60));
+    const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((ms % (1000 * 60)) / 1000);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const filteredInvoices = invoices.filter((invoice: any) => {
     const matchesSearch = invoice.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase());
@@ -86,10 +229,41 @@ export default function Billing() {
           <p className="text-muted-foreground mt-1">Manage invoices and track revenue</p>
         </div>
         <div className="flex items-center space-x-2 mt-4 md:mt-0">
-          <Button variant="outline" data-testid="button-start-timer">
-            <i className="fas fa-play mr-2"></i>
-            Start Timer
-          </Button>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" data-testid="button-start-timer">
+                <i className="fas fa-play mr-2"></i>
+                Start Timer
+              </Button>
+            </DialogTrigger>
+            <DialogContent data-testid="dialog-start-timer">
+              <DialogHeader>
+                <DialogTitle>Start Timer</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Matter</label>
+                  <Select onValueChange={(value) => {
+                    const matter = matters.find((m: any) => m.id === value);
+                    if (matter) {
+                      startTimer(matter.id, `Work on ${matter.caseNo}`);
+                    }
+                  }}>
+                    <SelectTrigger data-testid="select-timer-matter">
+                      <SelectValue placeholder="Select matter" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {matters.map((matter: any) => (
+                        <SelectItem key={matter.id} value={matter.id}>
+                          {matter.caseNo} - {matter.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Button data-testid="button-create-invoice">
             <i className="fas fa-file-invoice mr-2"></i>
             New Invoice
@@ -126,30 +300,32 @@ export default function Billing() {
       </div>
 
       {/* Active Timer */}
-      <Card className="border-primary bg-primary/5">
-        <CardContent className="p-6">
-          <div className="flex items-start space-x-3">
-            <i className="fas fa-clock text-primary text-xl mt-1"></i>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground mb-1">Time Tracking Active</p>
-              <p className="text-sm text-muted-foreground">
-                Currently tracking: Document Review - CS 234/2024
-                <span className="font-mono font-semibold ml-2 text-primary">01:23:45</span>
-              </p>
-              <div className="flex items-center space-x-2 mt-2">
-                <Button size="sm" data-testid="button-stop-timer">
-                  <i className="fas fa-stop mr-1"></i>
-                  Stop
-                </Button>
-                <Button variant="outline" size="sm" data-testid="button-pause-timer">
-                  <i className="fas fa-pause mr-1"></i>
-                  Pause
-                </Button>
+      {activeTimer && (
+        <Card className="border-primary bg-primary/5">
+          <CardContent className="p-6">
+            <div className="flex items-start space-x-3">
+              <Clock className="text-primary text-xl mt-1" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-foreground mb-1">Time Tracking Active</p>
+                <p className="text-sm text-muted-foreground">
+                  Currently tracking: {activeTimer.description}
+                  <span className="font-mono font-semibold ml-2 text-primary">{formatDuration(timerDuration)}</span>
+                </p>
+                <div className="flex items-center space-x-2 mt-2">
+                  <Button size="sm" onClick={handleTimerStop} data-testid="button-stop-timer">
+                    <i className="fas fa-stop mr-1"></i>
+                    Stop
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={pauseTimer} data-testid="button-pause-timer">
+                    <i className="fas fa-pause mr-1"></i>
+                    Pause
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Billing Tabs */}
       <Tabs defaultValue="invoices" className="space-y-4">
@@ -263,6 +439,217 @@ export default function Billing() {
         </TabsContent>
 
         <TabsContent value="time-tracking" className="space-y-4">
+          <div className="flex justify-end">
+            <Dialog open={isTimeEntryDialogOpen} onOpenChange={setIsTimeEntryDialogOpen}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-add-time-entry">
+                  <i className="fas fa-plus mr-2"></i>
+                  Add Time Entry
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl" data-testid="dialog-time-entry-form">
+                <DialogHeader>
+                  <DialogTitle>Add Time Entry</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit((data) => createTimeEntryMutation.mutate(data))} className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="matterId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Matter</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="input-matter">
+                                <SelectValue placeholder="Select matter" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {matters.map((matter: any) => (
+                                <SelectItem key={matter.id} value={matter.id}>
+                                  {matter.caseNo} - {matter.title}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="description"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Description</FormLabel>
+                          <FormControl>
+                            <Textarea 
+                              placeholder="Describe the work performed..."
+                              {...field}
+                              data-testid="input-description"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="date"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Date</FormLabel>
+                          <FormControl>
+                            <Input type="date" {...field} data-testid="input-date" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="startTime"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Start Time</FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="time" 
+                                {...field} 
+                                onChange={(e) => {
+                                  field.onChange(e);
+                                  const endTime = form.getValues("endTime");
+                                  if (endTime && e.target.value) {
+                                    const start = new Date(`2000-01-01T${e.target.value}`);
+                                    const end = new Date(`2000-01-01T${endTime}`);
+                                    const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+                                    form.setValue("durationHours", hours.toFixed(2));
+                                  }
+                                }}
+                                data-testid="input-start-time"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="endTime"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>End Time (Optional)</FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="time" 
+                                {...field} 
+                                onChange={(e) => {
+                                  field.onChange(e);
+                                  const startTime = form.getValues("startTime");
+                                  if (startTime && e.target.value) {
+                                    const start = new Date(`2000-01-01T${startTime}`);
+                                    const end = new Date(`2000-01-01T${e.target.value}`);
+                                    const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+                                    form.setValue("durationHours", hours.toFixed(2));
+                                  }
+                                }}
+                                data-testid="input-end-time"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <FormField
+                      control={form.control}
+                      name="durationHours"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Duration (Hours)</FormLabel>
+                          <FormControl>
+                            <Input 
+                              type="number" 
+                              step="0.25"
+                              placeholder="Or enter duration manually"
+                              {...field}
+                              data-testid="input-duration"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="rate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Rate (₹ per hour)</FormLabel>
+                          <FormControl>
+                            <Input 
+                              type="number" 
+                              step="100"
+                              placeholder="5000"
+                              {...field}
+                              data-testid="input-rate"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="isBillable"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                          <FormControl>
+                            <Checkbox 
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="input-billable"
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel>Billable</FormLabel>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="flex justify-end space-x-2">
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={() => setIsTimeEntryDialogOpen(false)}
+                        data-testid="button-cancel-time-entry"
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        type="submit" 
+                        disabled={createTimeEntryMutation.isPending}
+                        data-testid="button-submit-time-entry"
+                      >
+                        {createTimeEntryMutation.isPending ? "Creating..." : "Create Time Entry"}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle>Recent Time Entries</CardTitle>
@@ -277,11 +664,11 @@ export default function Billing() {
               ) : (
                 <div className="space-y-3">
                   {timeEntries.slice(0, 10).map((entry: any) => (
-                    <div key={entry.id} className="flex items-center justify-between p-3 border border-border rounded-md">
+                    <div key={entry.id} className="flex items-center justify-between p-3 border border-border rounded-md" data-testid={`time-entry-${entry.id}`}>
                       <div>
                         <p className="font-medium text-foreground">{entry.description}</p>
                         <p className="text-sm text-muted-foreground">
-                          {formatDate(entry.startTime)} • Duration: {Math.round(entry.duration / 60)} hours
+                          {formatDate(entry.startTime)} • Duration: {(entry.duration / 60).toFixed(2)} hours
                         </p>
                       </div>
                       <div className="text-right">
