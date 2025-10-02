@@ -17,14 +17,39 @@ import {
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Get current user's organization (mock for now)
-  const getCurrentOrgId = () => "demo-org-id";
-  const getCurrentUserId = () => "demo-user-id";
+  // Get current user's organization
+  let cachedOrgId: string | null = null;
+  let cachedUserId: string | null = null;
+
+  const getCurrentOrgId = async (): Promise<string> => {
+    if (cachedOrgId) return cachedOrgId;
+    
+    const user = await storage.getUserByUsername("adv.kumar");
+    if (user?.orgId) {
+      cachedOrgId = user.orgId;
+      return cachedOrgId;
+    }
+    
+    throw new Error("No organization found");
+  };
+
+  const getCurrentUserId = async (): Promise<string> => {
+    if (cachedUserId) return cachedUserId;
+    
+    const user = await storage.getUserByUsername("adv.kumar");
+    if (user) {
+      cachedUserId = user.id;
+      cachedOrgId = user.orgId || cachedOrgId;
+      return cachedUserId;
+    }
+    
+    throw new Error("No user found");
+  };
 
   // Dashboard stats
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       const today = new Date();
       
       const [todaysHearings, pendingTasks, courtAlerts, activeMatters] = await Promise.all([
@@ -60,7 +85,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard insights (AI-powered)
   app.get("/api/dashboard/insights", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       
       const [todaysHearings, pendingTasks, recentAlerts, activeMatters] = await Promise.all([
         storage.getTodaysHearings(orgId),
@@ -86,7 +111,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Matters CRUD
   app.get("/api/matters", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       const { status, stage } = req.query;
       
       const matters = await storage.getMattersByOrg(orgId, {
@@ -163,7 +188,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Hearings
   app.get("/api/hearings/today", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       const hearings = await storage.getTodaysHearings(orgId);
       
       // Enrich with matter details
@@ -183,7 +208,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/hearings/date-range", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       const { startDate, endDate } = req.query;
       
       if (!startDate || !endDate) {
@@ -221,7 +246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Parties
   app.get("/api/parties", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       const parties = await storage.getPartiesByOrg(orgId);
       res.json(parties);
     } catch (error) {
@@ -248,7 +273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Tasks
   app.get("/api/tasks", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       const { status, priority, matterId } = req.query;
       
       let tasks;
@@ -303,7 +328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Court Alerts
   app.get("/api/court-alerts", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       const alerts = await storage.getCourtAlertsByOrg(orgId);
       res.json(alerts);
     } catch (error) {
@@ -475,7 +500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Search query is required" });
       }
 
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       
       const [matters, files, parties] = await Promise.all([
         storage.getMattersByOrg(orgId),
@@ -499,7 +524,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Invoices
   app.get("/api/invoices", async (req, res) => {
     try {
-      const orgId = getCurrentOrgId();
+      const orgId = await getCurrentOrgId();
       const invoices = await storage.getInvoicesByOrg(orgId);
       res.json(invoices);
     } catch (error) {

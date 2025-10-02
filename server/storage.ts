@@ -12,9 +12,14 @@ import {
   type Notification, type InsertNotification,
   type File, type InsertFile,
   type CourtAlert, type InsertCourtAlert,
-  type AiAnalysisResult, type InsertAiAnalysisResult
+  type AiAnalysisResult, type InsertAiAnalysisResult,
+  organizations, users, matters, parties, hearings, dockets, 
+  tasks, timeEntries, expenses, invoices, notifications, 
+  files, courtAlerts, aiAnalysisResults
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { db } from "./db";
+import { eq, and, gte, lte, isNull, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Organizations
@@ -702,4 +707,708 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+function cleanData<T extends Record<string, any>>(data: T): T {
+  const cleaned: any = {};
+  for (const [key, value] of Object.entries(data)) {
+    cleaned[key] = value === undefined ? null : value;
+  }
+  return cleaned;
+}
+
+export class DbStorage implements IStorage {
+  constructor() {
+    this.seedData();
+  }
+
+  private async seedData() {
+    try {
+      const existingOrgs = await db.select().from(organizations).limit(1);
+      if (existingOrgs.length > 0) {
+        console.log("Database already seeded");
+        return;
+      }
+
+      console.log("Seeding database...");
+
+      const [org] = await db.insert(organizations).values(cleanData({
+        name: "Kumar & Associates",
+        type: "chambers",
+        bcisafeMode: true,
+        settings: {},
+      })).returning();
+
+      const [user] = await db.insert(users).values(cleanData({
+        orgId: org.id,
+        username: "adv.kumar",
+        email: "kumar@example.com",
+        name: "Adv. Kumar",
+        role: "owner",
+        barCouncilId: "D/1234/2015",
+        phone: "+91 98765 43210",
+        settings: {},
+      })).returning();
+
+      const [matter1] = await db.insert(matters).values(cleanData({
+        orgId: org.id,
+        caseNo: "CS 234/2024",
+        filingNo: "12345/2024",
+        title: "Sharma vs. Verma & Ors.",
+        court: "Delhi High Court",
+        forum: "Civil Side",
+        judge: "Justice Mehta",
+        subject: "Contract Dispute",
+        stage: "Arguments",
+        status: "active",
+        priority: "high",
+        leadCounselId: user.id,
+        cnrNumber: "DLHC010123452024",
+        tags: ["commercial", "contract"],
+        nextHearingDate: new Date("2025-01-14T10:00:00Z"),
+        filingDate: new Date("2024-01-15"),
+        metadata: {},
+      })).returning();
+
+      const [matter2] = await db.insert(matters).values(cleanData({
+        orgId: org.id,
+        caseNo: "W.P.(C) 7890/2024",
+        filingNo: "78901/2024",
+        title: "Kumar vs. Union of India",
+        court: "Delhi High Court",
+        forum: "Constitutional Bench",
+        judge: "Justice Patel",
+        subject: "Service Matter",
+        stage: "Notice Stage",
+        status: "active",
+        priority: "medium",
+        leadCounselId: user.id,
+        cnrNumber: "DLHC010789012024",
+        tags: ["service", "government"],
+        nextHearingDate: new Date("2025-01-28T11:30:00Z"),
+        filingDate: new Date("2024-02-01"),
+        metadata: {},
+      })).returning();
+
+      await db.insert(hearings).values(cleanData({
+        orgId: org.id,
+        matterId: matter1.id,
+        date: new Date("2025-01-14T10:00:00Z"),
+        time: "10:00 AM",
+        court: "Delhi High Court",
+        judge: "Justice Mehta",
+        bench: "Court No. 5",
+        purpose: "Arguments on IA 4567/2024",
+        result: "",
+        nextDate: null,
+        notes: "",
+        status: "scheduled",
+        metadata: {},
+      }));
+
+      await db.insert(parties).values(cleanData({
+        orgId: org.id,
+        matterId: matter1.id,
+        name: "Mr. Manoj Sharma",
+        role: "petitioner",
+        type: "client",
+        email: "manoj.s@example.com",
+        phone: "+91 98765 43210",
+        address: "123 Main Street, Delhi",
+        panNumber: "ABCDE1234F",
+        aadharNumber: null,
+        metadata: {},
+      }));
+
+      await db.insert(courtAlerts).values(cleanData({
+        orgId: org.id,
+        matterId: matter1.id,
+        type: "deadline_approaching",
+        title: "Filing Deadline",
+        message: "Reply affidavit due in 3 days for CS 234/2024",
+        urgency: "high",
+        source: "ai_detected",
+        actionRequired: true,
+        dueDate: new Date("2025-01-17"),
+        resolvedAt: null,
+        metadata: {},
+      }));
+
+      console.log("Database seeded successfully");
+    } catch (error) {
+      console.error("Error seeding database:", error);
+    }
+  }
+
+  async getOrganization(id: string): Promise<Organization | undefined> {
+    try {
+      const result = await db.select().from(organizations).where(eq(organizations.id, id)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting organization:", error);
+      return undefined;
+    }
+  }
+
+  async createOrganization(orgData: InsertOrganization): Promise<Organization> {
+    try {
+      const [org] = await db.insert(organizations).values(cleanData(orgData)).returning();
+      return org;
+    } catch (error) {
+      console.error("Error creating organization:", error);
+      throw error;
+    }
+  }
+
+  async updateOrganization(id: string, updates: Partial<Organization>): Promise<Organization | undefined> {
+    try {
+      const [updated] = await db.update(organizations)
+        .set(cleanData({ ...updates, updatedAt: new Date() }))
+        .where(eq(organizations.id, id))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error updating organization:", error);
+      return undefined;
+    }
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    try {
+      const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting user:", error);
+      return undefined;
+    }
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    try {
+      const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting user by username:", error);
+      return undefined;
+    }
+  }
+
+  async getUsersByOrg(orgId: string): Promise<User[]> {
+    try {
+      return await db.select().from(users).where(eq(users.orgId, orgId));
+    } catch (error) {
+      console.error("Error getting users by org:", error);
+      return [];
+    }
+  }
+
+  async createUser(userData: InsertUser): Promise<User> {
+    try {
+      const [user] = await db.insert(users).values(cleanData(userData)).returning();
+      return user;
+    } catch (error) {
+      console.error("Error creating user:", error);
+      throw error;
+    }
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
+    try {
+      const [updated] = await db.update(users)
+        .set(cleanData({ ...updates, updatedAt: new Date() }))
+        .where(eq(users.id, id))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error updating user:", error);
+      return undefined;
+    }
+  }
+
+  async getMatter(id: string): Promise<Matter | undefined> {
+    try {
+      const result = await db.select().from(matters)
+        .where(and(eq(matters.id, id), eq(matters.isDeleted, false)))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting matter:", error);
+      return undefined;
+    }
+  }
+
+  async getMattersByOrg(orgId: string, filters?: { status?: string; stage?: string }): Promise<Matter[]> {
+    try {
+      const conditions = [eq(matters.orgId, orgId), eq(matters.isDeleted, false)];
+      
+      if (filters?.status) {
+        conditions.push(eq(matters.status, filters.status));
+      }
+      if (filters?.stage) {
+        conditions.push(eq(matters.stage, filters.stage));
+      }
+
+      return await db.select().from(matters).where(and(...conditions));
+    } catch (error) {
+      console.error("Error getting matters by org:", error);
+      return [];
+    }
+  }
+
+  async createMatter(matterData: InsertMatter): Promise<Matter> {
+    try {
+      const [matter] = await db.insert(matters).values(cleanData(matterData)).returning();
+      return matter;
+    } catch (error) {
+      console.error("Error creating matter:", error);
+      throw error;
+    }
+  }
+
+  async updateMatter(id: string, updates: Partial<Matter>): Promise<Matter | undefined> {
+    try {
+      const [updated] = await db.update(matters)
+        .set(cleanData({ ...updates, updatedAt: new Date() }))
+        .where(and(eq(matters.id, id), eq(matters.isDeleted, false)))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error updating matter:", error);
+      return undefined;
+    }
+  }
+
+  async deleteMatter(id: string): Promise<boolean> {
+    try {
+      const result = await db.update(matters)
+        .set({ isDeleted: true, updatedAt: new Date() })
+        .where(eq(matters.id, id))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error("Error deleting matter:", error);
+      return false;
+    }
+  }
+
+  async getPartiesByMatter(matterId: string): Promise<Party[]> {
+    try {
+      return await db.select().from(parties)
+        .where(and(eq(parties.matterId, matterId), eq(parties.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting parties by matter:", error);
+      return [];
+    }
+  }
+
+  async getPartiesByOrg(orgId: string): Promise<Party[]> {
+    try {
+      return await db.select().from(parties)
+        .where(and(eq(parties.orgId, orgId), eq(parties.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting parties by org:", error);
+      return [];
+    }
+  }
+
+  async createParty(partyData: InsertParty): Promise<Party> {
+    try {
+      const [party] = await db.insert(parties).values(cleanData(partyData)).returning();
+      return party;
+    } catch (error) {
+      console.error("Error creating party:", error);
+      throw error;
+    }
+  }
+
+  async updateParty(id: string, updates: Partial<Party>): Promise<Party | undefined> {
+    try {
+      const [updated] = await db.update(parties)
+        .set(cleanData({ ...updates, updatedAt: new Date() }))
+        .where(and(eq(parties.id, id), eq(parties.isDeleted, false)))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error updating party:", error);
+      return undefined;
+    }
+  }
+
+  async getHearing(id: string): Promise<Hearing | undefined> {
+    try {
+      const result = await db.select().from(hearings)
+        .where(and(eq(hearings.id, id), eq(hearings.isDeleted, false)))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting hearing:", error);
+      return undefined;
+    }
+  }
+
+  async getHearingsByMatter(matterId: string): Promise<Hearing[]> {
+    try {
+      return await db.select().from(hearings)
+        .where(and(eq(hearings.matterId, matterId), eq(hearings.isDeleted, false)))
+        .orderBy(hearings.date);
+    } catch (error) {
+      console.error("Error getting hearings by matter:", error);
+      return [];
+    }
+  }
+
+  async getHearingsByDateRange(orgId: string, startDate: Date, endDate: Date): Promise<Hearing[]> {
+    try {
+      return await db.select().from(hearings)
+        .where(and(
+          eq(hearings.orgId, orgId),
+          eq(hearings.isDeleted, false),
+          gte(hearings.date, startDate),
+          lte(hearings.date, endDate)
+        ))
+        .orderBy(hearings.date);
+    } catch (error) {
+      console.error("Error getting hearings by date range:", error);
+      return [];
+    }
+  }
+
+  async getTodaysHearings(orgId: string): Promise<Hearing[]> {
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    return this.getHearingsByDateRange(orgId, startOfDay, endOfDay);
+  }
+
+  async createHearing(hearingData: InsertHearing): Promise<Hearing> {
+    try {
+      const [hearing] = await db.insert(hearings).values(cleanData(hearingData)).returning();
+      return hearing;
+    } catch (error) {
+      console.error("Error creating hearing:", error);
+      throw error;
+    }
+  }
+
+  async updateHearing(id: string, updates: Partial<Hearing>): Promise<Hearing | undefined> {
+    try {
+      const [updated] = await db.update(hearings)
+        .set(cleanData({ ...updates, updatedAt: new Date() }))
+        .where(and(eq(hearings.id, id), eq(hearings.isDeleted, false)))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error updating hearing:", error);
+      return undefined;
+    }
+  }
+
+  async getDocketsByMatter(matterId: string): Promise<Docket[]> {
+    try {
+      return await db.select().from(dockets)
+        .where(and(eq(dockets.matterId, matterId), eq(dockets.isDeleted, false)))
+        .orderBy(desc(dockets.date));
+    } catch (error) {
+      console.error("Error getting dockets by matter:", error);
+      return [];
+    }
+  }
+
+  async createDocket(docketData: InsertDocket): Promise<Docket> {
+    try {
+      const [docket] = await db.insert(dockets).values(cleanData(docketData)).returning();
+      return docket;
+    } catch (error) {
+      console.error("Error creating docket:", error);
+      throw error;
+    }
+  }
+
+  async getTasksByMatter(matterId: string): Promise<Task[]> {
+    try {
+      return await db.select().from(tasks)
+        .where(and(eq(tasks.matterId, matterId), eq(tasks.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting tasks by matter:", error);
+      return [];
+    }
+  }
+
+  async getTasksByUser(userId: string): Promise<Task[]> {
+    try {
+      return await db.select().from(tasks)
+        .where(and(eq(tasks.assigneeId, userId), eq(tasks.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting tasks by user:", error);
+      return [];
+    }
+  }
+
+  async getTasksByOrg(orgId: string, filters?: { status?: string; priority?: string }): Promise<Task[]> {
+    try {
+      const conditions = [eq(tasks.orgId, orgId), eq(tasks.isDeleted, false)];
+      
+      if (filters?.status) {
+        conditions.push(eq(tasks.status, filters.status));
+      }
+      if (filters?.priority) {
+        conditions.push(eq(tasks.priority, filters.priority));
+      }
+
+      return await db.select().from(tasks).where(and(...conditions));
+    } catch (error) {
+      console.error("Error getting tasks by org:", error);
+      return [];
+    }
+  }
+
+  async createTask(taskData: InsertTask): Promise<Task> {
+    try {
+      const [task] = await db.insert(tasks).values(cleanData(taskData)).returning();
+      return task;
+    } catch (error) {
+      console.error("Error creating task:", error);
+      throw error;
+    }
+  }
+
+  async updateTask(id: string, updates: Partial<Task>): Promise<Task | undefined> {
+    try {
+      const [updated] = await db.update(tasks)
+        .set(cleanData({ ...updates, updatedAt: new Date() }))
+        .where(and(eq(tasks.id, id), eq(tasks.isDeleted, false)))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error updating task:", error);
+      return undefined;
+    }
+  }
+
+  async getTimeEntriesByMatter(matterId: string): Promise<TimeEntry[]> {
+    try {
+      return await db.select().from(timeEntries)
+        .where(and(eq(timeEntries.matterId, matterId), eq(timeEntries.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting time entries by matter:", error);
+      return [];
+    }
+  }
+
+  async getTimeEntriesByUser(userId: string): Promise<TimeEntry[]> {
+    try {
+      return await db.select().from(timeEntries)
+        .where(and(eq(timeEntries.userId, userId), eq(timeEntries.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting time entries by user:", error);
+      return [];
+    }
+  }
+
+  async createTimeEntry(entryData: InsertTimeEntry): Promise<TimeEntry> {
+    try {
+      const [entry] = await db.insert(timeEntries).values(cleanData(entryData)).returning();
+      return entry;
+    } catch (error) {
+      console.error("Error creating time entry:", error);
+      throw error;
+    }
+  }
+
+  async getExpensesByMatter(matterId: string): Promise<Expense[]> {
+    try {
+      return await db.select().from(expenses)
+        .where(and(eq(expenses.matterId, matterId), eq(expenses.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting expenses by matter:", error);
+      return [];
+    }
+  }
+
+  async createExpense(expenseData: InsertExpense): Promise<Expense> {
+    try {
+      const [expense] = await db.insert(expenses).values(cleanData(expenseData)).returning();
+      return expense;
+    } catch (error) {
+      console.error("Error creating expense:", error);
+      throw error;
+    }
+  }
+
+  async getInvoicesByOrg(orgId: string): Promise<Invoice[]> {
+    try {
+      return await db.select().from(invoices)
+        .where(and(eq(invoices.orgId, orgId), eq(invoices.isDeleted, false)))
+        .orderBy(desc(invoices.createdAt));
+    } catch (error) {
+      console.error("Error getting invoices by org:", error);
+      return [];
+    }
+  }
+
+  async getInvoice(id: string): Promise<Invoice | undefined> {
+    try {
+      const result = await db.select().from(invoices)
+        .where(and(eq(invoices.id, id), eq(invoices.isDeleted, false)))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting invoice:", error);
+      return undefined;
+    }
+  }
+
+  async createInvoice(invoiceData: InsertInvoice): Promise<Invoice> {
+    try {
+      const [invoice] = await db.insert(invoices).values(cleanData(invoiceData)).returning();
+      return invoice;
+    } catch (error) {
+      console.error("Error creating invoice:", error);
+      throw error;
+    }
+  }
+
+  async updateInvoice(id: string, updates: Partial<Invoice>): Promise<Invoice | undefined> {
+    try {
+      const [updated] = await db.update(invoices)
+        .set(cleanData({ ...updates, updatedAt: new Date() }))
+        .where(and(eq(invoices.id, id), eq(invoices.isDeleted, false)))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error updating invoice:", error);
+      return undefined;
+    }
+  }
+
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
+    try {
+      return await db.select().from(notifications)
+        .where(eq(notifications.userId, userId))
+        .orderBy(desc(notifications.createdAt));
+    } catch (error) {
+      console.error("Error getting notifications by user:", error);
+      return [];
+    }
+  }
+
+  async createNotification(notificationData: InsertNotification): Promise<Notification> {
+    try {
+      const [notification] = await db.insert(notifications).values(cleanData(notificationData)).returning();
+      return notification;
+    } catch (error) {
+      console.error("Error creating notification:", error);
+      throw error;
+    }
+  }
+
+  async markNotificationRead(id: string): Promise<boolean> {
+    try {
+      const result = await db.update(notifications)
+        .set({ readAt: new Date() })
+        .where(eq(notifications.id, id))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error("Error marking notification read:", error);
+      return false;
+    }
+  }
+
+  async getFilesByMatter(matterId: string): Promise<File[]> {
+    try {
+      return await db.select().from(files)
+        .where(and(eq(files.matterId, matterId), eq(files.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting files by matter:", error);
+      return [];
+    }
+  }
+
+  async getFile(id: string): Promise<File | undefined> {
+    try {
+      const result = await db.select().from(files)
+        .where(and(eq(files.id, id), eq(files.isDeleted, false)))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error("Error getting file:", error);
+      return undefined;
+    }
+  }
+
+  async createFile(fileData: InsertFile): Promise<File> {
+    try {
+      const [file] = await db.insert(files).values(cleanData(fileData)).returning();
+      return file;
+    } catch (error) {
+      console.error("Error creating file:", error);
+      throw error;
+    }
+  }
+
+  async getCourtAlertsByOrg(orgId: string): Promise<CourtAlert[]> {
+    try {
+      return await db.select().from(courtAlerts)
+        .where(and(eq(courtAlerts.orgId, orgId), eq(courtAlerts.isDeleted, false)))
+        .orderBy(desc(courtAlerts.createdAt));
+    } catch (error) {
+      console.error("Error getting court alerts by org:", error);
+      return [];
+    }
+  }
+
+  async getCourtAlertsByMatter(matterId: string): Promise<CourtAlert[]> {
+    try {
+      return await db.select().from(courtAlerts)
+        .where(and(eq(courtAlerts.matterId, matterId), eq(courtAlerts.isDeleted, false)));
+    } catch (error) {
+      console.error("Error getting court alerts by matter:", error);
+      return [];
+    }
+  }
+
+  async createCourtAlert(alertData: InsertCourtAlert): Promise<CourtAlert> {
+    try {
+      const [alert] = await db.insert(courtAlerts).values(cleanData(alertData)).returning();
+      return alert;
+    } catch (error) {
+      console.error("Error creating court alert:", error);
+      throw error;
+    }
+  }
+
+  async updateCourtAlert(id: string, updates: Partial<CourtAlert>): Promise<CourtAlert | undefined> {
+    try {
+      const [updated] = await db.update(courtAlerts)
+        .set(cleanData({ ...updates, updatedAt: new Date() }))
+        .where(and(eq(courtAlerts.id, id), eq(courtAlerts.isDeleted, false)))
+        .returning();
+      return updated;
+    } catch (error) {
+      console.error("Error updating court alert:", error);
+      return undefined;
+    }
+  }
+
+  async getAiAnalysisResultsByMatter(matterId: string): Promise<AiAnalysisResult[]> {
+    try {
+      return await db.select().from(aiAnalysisResults)
+        .where(eq(aiAnalysisResults.matterId, matterId))
+        .orderBy(desc(aiAnalysisResults.createdAt));
+    } catch (error) {
+      console.error("Error getting AI analysis results by matter:", error);
+      return [];
+    }
+  }
+
+  async createAiAnalysisResult(resultData: InsertAiAnalysisResult): Promise<AiAnalysisResult> {
+    try {
+      const [result] = await db.insert(aiAnalysisResults).values(cleanData(resultData)).returning();
+      return result;
+    } catch (error) {
+      console.error("Error creating AI analysis result:", error);
+      throw error;
+    }
+  }
+}
+
+export const storage = new DbStorage();
