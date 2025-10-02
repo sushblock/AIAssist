@@ -14,7 +14,7 @@ import { formatDate } from "@/lib/date-utils";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertTimeEntrySchema, insertExpenseSchema } from "@shared/schema";
-import type { Invoice, Matter, TimeEntry, Expense } from "@shared/schema";
+import type { Invoice, Matter, TimeEntry, Expense, Party, Organization } from "@shared/schema";
 import { z } from "zod";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -60,7 +60,10 @@ export default function Billing() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [isTimeEntryDialogOpen, setIsTimeEntryDialogOpen] = useState(false);
   const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
+  const [isInvoiceDialogOpen, setIsInvoiceDialogOpen] = useState(false);
   const [timerDuration, setTimerDuration] = useState(0);
+  const [selectedMatterId, setSelectedMatterId] = useState("");
+  const [selectedLineItems, setSelectedLineItems] = useState<string[]>([]);
   
   const { toast } = useToast();
   const { activeTimer, startTimer, stopTimer, pauseTimer } = useAppStore();
@@ -79,6 +82,34 @@ export default function Billing() {
 
   const { data: matters = [] } = useQuery<Matter[]>({
     queryKey: ["/api/matters"],
+  });
+
+  const { data: parties = [] } = useQuery<Party[]>({
+    queryKey: ["/api/parties"],
+  });
+
+  const { data: organization } = useQuery<Organization>({
+    queryKey: ["/api/organization"],
+  });
+
+  const { data: matterTimeEntries = [] } = useQuery<TimeEntry[]>({
+    queryKey: ["/api/time-entries", selectedMatterId],
+    queryFn: async () => {
+      const response = await fetch(`/api/time-entries?matterId=${selectedMatterId}`);
+      if (!response.ok) throw new Error('Failed to fetch time entries');
+      return response.json();
+    },
+    enabled: !!selectedMatterId && isInvoiceDialogOpen,
+  });
+
+  const { data: matterExpenses = [] } = useQuery<Expense[]>({
+    queryKey: ["/api/expenses", selectedMatterId],
+    queryFn: async () => {
+      const response = await fetch(`/api/expenses?matterId=${selectedMatterId}`);
+      if (!response.ok) throw new Error('Failed to fetch expenses');
+      return response.json();
+    },
+    enabled: !!selectedMatterId && isInvoiceDialogOpen,
   });
 
   const form = useForm<TimeEntryFormData>({
@@ -198,6 +229,30 @@ export default function Billing() {
     },
   });
 
+  const createInvoiceMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/invoices", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      toast({
+        title: "Success",
+        description: "Invoice created successfully",
+      });
+      setIsInvoiceDialogOpen(false);
+      setSelectedMatterId("");
+      setSelectedLineItems([]);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create invoice",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleTimerStop = async () => {
     if (!activeTimer) return;
     
@@ -245,6 +300,128 @@ export default function Billing() {
     const seconds = Math.floor((ms % (1000 * 60)) / 1000);
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
+
+  const generateInvoiceNumber = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const thisMonthInvoices = invoices.filter((inv: any) => {
+      const invDate = new Date(inv.createdAt);
+      return invDate.getFullYear() === year && invDate.getMonth() === now.getMonth();
+    });
+    const sequence = String(thisMonthInvoices.length + 1).padStart(4, '0');
+    return `INV-${year}-${month}-${sequence}`;
+  };
+
+  const calculateGST = (subtotal: number, orgState?: string, clientState?: string) => {
+    const gstRate = 0.18;
+    const totalTax = subtotal * gstRate;
+
+    if (orgState && clientState && orgState.toLowerCase() === clientState.toLowerCase()) {
+      return {
+        type: 'same_state',
+        cgst: totalTax / 2,
+        sgst: totalTax / 2,
+        igst: 0,
+        total: totalTax
+      };
+    } else {
+      return {
+        type: 'different_state',
+        cgst: 0,
+        sgst: 0,
+        igst: totalTax,
+        total: totalTax
+      };
+    }
+  };
+
+  const handleGenerateInvoice = () => {
+    if (!selectedMatterId) {
+      toast({
+        title: "Error",
+        description: "Please select a matter",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const selectedMatter = matters.find((m: any) => m.id === selectedMatterId);
+    const client = parties.find((p: any) => p.matterId === selectedMatterId && p.type === "client");
+
+    const filteredTimeEntries = matterTimeEntries.filter((entry: any) => 
+      entry.isBillable && entry.matterId === selectedMatterId
+    );
+    const filteredExpenses = matterExpenses.filter((exp: any) => 
+      exp.isBillable && exp.matterId === selectedMatterId
+    );
+
+    const lineItems = [
+      ...filteredTimeEntries.map((entry: any) => ({
+        type: 'time',
+        description: entry.description,
+        date: entry.startTime,
+        amount: (entry.duration / 60) * parseFloat(entry.rate || "0"),
+        quantity: entry.duration / 60,
+        rate: parseFloat(entry.rate || "0")
+      })),
+      ...filteredExpenses.map((exp: any) => ({
+        type: 'expense',
+        description: exp.description,
+        date: exp.date,
+        amount: parseFloat(exp.amount || "0"),
+        quantity: 1,
+        rate: parseFloat(exp.amount || "0")
+      }))
+    ];
+
+    const selectedItems = lineItems.filter((_, index) => 
+      selectedLineItems.includes(index.toString())
+    );
+
+    if (selectedItems.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please select at least one line item",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const subtotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
+    const gstCalc = calculateGST(subtotal, organization?.state, client?.state);
+
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 30);
+
+    createInvoiceMutation.mutate({
+      invoiceNumber: generateInvoiceNumber(),
+      clientId: client?.id || null,
+      matterId: selectedMatterId,
+      amount: subtotal,
+      tax: gstCalc.total,
+      totalAmount: subtotal + gstCalc.total,
+      status: "draft",
+      dueDate: dueDate.toISOString(),
+      gstNumber: organization?.gstNumber || null,
+      lineItems: selectedItems,
+      pdfUrl: null,
+    });
+  };
+
+  useEffect(() => {
+    if (selectedMatterId && isInvoiceDialogOpen) {
+      const filteredTimeEntries = matterTimeEntries.filter((entry: any) => 
+        entry.isBillable && entry.matterId === selectedMatterId
+      );
+      const filteredExpenses = matterExpenses.filter((exp: any) => 
+        exp.isBillable && exp.matterId === selectedMatterId
+      );
+      
+      const allItems = [...filteredTimeEntries, ...filteredExpenses];
+      setSelectedLineItems(allItems.map((_, index) => index.toString()));
+    }
+  }, [selectedMatterId, matterTimeEntries, matterExpenses, isInvoiceDialogOpen]);
 
   const filteredInvoices = invoices.filter((invoice: any) => {
     const matchesSearch = invoice.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase());
@@ -347,10 +524,223 @@ export default function Billing() {
               </div>
             </DialogContent>
           </Dialog>
-          <Button data-testid="button-create-invoice">
-            <i className="fas fa-file-invoice mr-2"></i>
-            New Invoice
-          </Button>
+          <Dialog open={isInvoiceDialogOpen} onOpenChange={setIsInvoiceDialogOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-create-invoice">
+                <i className="fas fa-file-invoice mr-2"></i>
+                New Invoice
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" data-testid="dialog-invoice-form">
+              <DialogHeader>
+                <DialogTitle>Generate Invoice</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Matter</label>
+                  <Select value={selectedMatterId} onValueChange={setSelectedMatterId}>
+                    <SelectTrigger data-testid="select-invoice-matter">
+                      <SelectValue placeholder="Select matter" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {matters.map((matter: any) => (
+                        <SelectItem key={matter.id} value={matter.id}>
+                          {matter.caseNo} - {matter.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedMatterId && (
+                  <>
+                    <div className="bg-muted p-4 rounded-lg">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Client</p>
+                          <p className="font-medium" data-testid="text-invoice-client">
+                            {parties.find((p: any) => p.matterId === selectedMatterId && p.type === "client")?.name || "N/A"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Matter</p>
+                          <p className="font-medium" data-testid="text-invoice-matter">
+                            {matters.find((m: any) => m.id === selectedMatterId)?.caseNo}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Invoice Number</p>
+                          <p className="font-mono font-medium" data-testid="text-invoice-number">{generateInvoiceNumber()}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">GST Number</p>
+                          <p className="font-medium" data-testid="text-gst-number">{organization?.gstNumber || "Not Set"}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-medium mb-2">Line Items</h3>
+                      <div className="border rounded-lg overflow-hidden">
+                        <div className="max-h-64 overflow-y-auto">
+                          <table className="w-full">
+                            <thead className="bg-muted sticky top-0">
+                              <tr>
+                                <th className="text-left p-2 text-sm font-medium">
+                                  <Checkbox
+                                    checked={selectedLineItems.length > 0}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        const allItems = [...matterTimeEntries.filter((e: any) => e.isBillable && e.matterId === selectedMatterId), ...matterExpenses.filter((e: any) => e.isBillable && e.matterId === selectedMatterId)];
+                                        setSelectedLineItems(allItems.map((_, i) => i.toString()));
+                                      } else {
+                                        setSelectedLineItems([]);
+                                      }
+                                    }}
+                                    data-testid="checkbox-select-all"
+                                  />
+                                </th>
+                                <th className="text-left p-2 text-sm font-medium">Type</th>
+                                <th className="text-left p-2 text-sm font-medium">Description</th>
+                                <th className="text-left p-2 text-sm font-medium">Date</th>
+                                <th className="text-right p-2 text-sm font-medium">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {matterTimeEntries.filter((e: any) => e.isBillable && e.matterId === selectedMatterId).map((entry: any, index: number) => (
+                                <tr key={`time-${index}`} className="border-t">
+                                  <td className="p-2">
+                                    <Checkbox
+                                      checked={selectedLineItems.includes(index.toString())}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          setSelectedLineItems([...selectedLineItems, index.toString()]);
+                                        } else {
+                                          setSelectedLineItems(selectedLineItems.filter(id => id !== index.toString()));
+                                        }
+                                      }}
+                                      data-testid={`checkbox-item-${index}`}
+                                    />
+                                  </td>
+                                  <td className="p-2 text-sm">
+                                    <Badge variant="outline">Time</Badge>
+                                  </td>
+                                  <td className="p-2 text-sm">{entry.description}</td>
+                                  <td className="p-2 text-sm">{formatDate(entry.startTime)}</td>
+                                  <td className="p-2 text-sm text-right" data-testid={`amount-time-${index}`}>
+                                    {formatCurrency((entry.duration / 60) * parseFloat(entry.rate || "0"))}
+                                  </td>
+                                </tr>
+                              ))}
+                              {matterExpenses.filter((e: any) => e.isBillable && e.matterId === selectedMatterId).map((expense: any, index: number) => {
+                                const adjustedIndex = index + matterTimeEntries.filter((e: any) => e.isBillable && e.matterId === selectedMatterId).length;
+                                return (
+                                  <tr key={`expense-${index}`} className="border-t">
+                                    <td className="p-2">
+                                      <Checkbox
+                                        checked={selectedLineItems.includes(adjustedIndex.toString())}
+                                        onCheckedChange={(checked) => {
+                                          if (checked) {
+                                            setSelectedLineItems([...selectedLineItems, adjustedIndex.toString()]);
+                                          } else {
+                                            setSelectedLineItems(selectedLineItems.filter(id => id !== adjustedIndex.toString()));
+                                          }
+                                        }}
+                                        data-testid={`checkbox-item-${adjustedIndex}`}
+                                      />
+                                    </td>
+                                    <td className="p-2 text-sm">
+                                      <Badge variant="secondary">Expense</Badge>
+                                    </td>
+                                    <td className="p-2 text-sm">{expense.description}</td>
+                                    <td className="p-2 text-sm">{formatDate(expense.date)}</td>
+                                    <td className="p-2 text-sm text-right" data-testid={`amount-expense-${index}`}>
+                                      {formatCurrency(parseFloat(expense.amount || "0"))}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const filteredTimeEntries = matterTimeEntries.filter((e: any) => e.isBillable && e.matterId === selectedMatterId);
+                      const filteredExpenses = matterExpenses.filter((e: any) => e.isBillable && e.matterId === selectedMatterId);
+                      const lineItems = [
+                        ...filteredTimeEntries.map((entry: any) => ({
+                          amount: (entry.duration / 60) * parseFloat(entry.rate || "0")
+                        })),
+                        ...filteredExpenses.map((exp: any) => ({
+                          amount: parseFloat(exp.amount || "0")
+                        }))
+                      ];
+                      const selectedItems = lineItems.filter((_, index) => selectedLineItems.includes(index.toString()));
+                      const subtotal = selectedItems.reduce((sum, item) => sum + item.amount, 0);
+                      const client = parties.find((p: any) => p.matterId === selectedMatterId && p.type === "client");
+                      const gstCalc = calculateGST(subtotal, organization?.state, client?.state);
+
+                      return (
+                        <div className="bg-muted p-4 rounded-lg space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-sm">Subtotal:</span>
+                            <span className="font-medium" data-testid="text-subtotal">{formatCurrency(subtotal)}</span>
+                          </div>
+                          {gstCalc.type === 'same_state' ? (
+                            <>
+                              <div className="flex justify-between">
+                                <span className="text-sm">CGST (9%):</span>
+                                <span className="font-medium" data-testid="text-cgst">{formatCurrency(gstCalc.cgst)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-sm">SGST (9%):</span>
+                                <span className="font-medium" data-testid="text-sgst">{formatCurrency(gstCalc.sgst)}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex justify-between">
+                              <span className="text-sm">IGST (18%):</span>
+                              <span className="font-medium" data-testid="text-igst">{formatCurrency(gstCalc.igst)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between pt-2 border-t">
+                            <span className="font-semibold">Total Amount:</span>
+                            <span className="font-bold text-lg" data-testid="text-total">{formatCurrency(subtotal + gstCalc.total)}</span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Due Date: {new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="flex justify-end space-x-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setIsInvoiceDialogOpen(false);
+                          setSelectedMatterId("");
+                          setSelectedLineItems([]);
+                        }}
+                        data-testid="button-cancel-invoice"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={handleGenerateInvoice}
+                        disabled={createInvoiceMutation.isPending || selectedLineItems.length === 0}
+                        data-testid="button-generate-invoice"
+                      >
+                        {createInvoiceMutation.isPending ? "Generating..." : "Generate Invoice"}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 

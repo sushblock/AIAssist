@@ -47,6 +47,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     throw new Error("No user found");
   };
 
+  // Organization
+  app.get("/api/organization", async (req, res) => {
+    try {
+      const orgId = await getCurrentOrgId();
+      const org = await storage.getOrganization(orgId);
+      
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+      
+      res.json(org);
+    } catch (error) {
+      console.error("Error fetching organization:", error);
+      res.status(500).json({ message: "Failed to fetch organization" });
+    }
+  });
+
   // Dashboard stats
   app.get("/api/dashboard/stats", async (req, res) => {
     try {
@@ -536,9 +553,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/invoices", async (req, res) => {
     try {
+      const orgId = await getCurrentOrgId();
+      
       const invoiceData = insertInvoiceSchema.parse({
         ...req.body,
-        orgId: getCurrentOrgId()
+        orgId,
+        amount: req.body.amount?.toString(),
+        tax: req.body.tax?.toString(),
+        totalAmount: req.body.totalAmount?.toString(),
+        dueDate: req.body.dueDate ? new Date(req.body.dueDate) : null,
       });
 
       const invoice = await storage.createInvoice(invoiceData);
@@ -552,9 +575,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Time tracking
   app.get("/api/time-entries", async (req, res) => {
     try {
-      const userId = await getCurrentUserId();
-      const entries = await storage.getTimeEntriesByUser(userId);
-      res.json(entries);
+      const { matterId } = req.query;
+      
+      if (matterId) {
+        const entries = await storage.getTimeEntriesByMatter(matterId as string);
+        res.json(entries);
+      } else {
+        const userId = await getCurrentUserId();
+        const entries = await storage.getTimeEntriesByUser(userId);
+        res.json(entries);
+      }
     } catch (error) {
       console.error("Error fetching time entries:", error);
       res.status(500).json({ message: "Failed to fetch time entries" });

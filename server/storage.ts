@@ -131,6 +131,8 @@ export class MemStorage implements IStorage {
       name: "Kumar & Associates",
       type: "chambers",
       bcisafeMode: true,
+      state: "Delhi",
+      gstNumber: "07AAAAA0000A1Z5",
       settings: {},
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -242,6 +244,7 @@ export class MemStorage implements IStorage {
       email: "manoj.s@example.com",
       phone: "+91 98765 43210",
       address: "123 Main Street, Delhi",
+      state: "Delhi",
       panNumber: "ABCDE1234F",
       aadharNumber: null,
       metadata: {},
@@ -271,6 +274,82 @@ export class MemStorage implements IStorage {
       updatedAt: new Date(),
     };
     this.courtAlerts.set(alertId, alert);
+
+    // Create demo time entries
+    const timeEntry1Id = randomUUID();
+    const timeEntry1: TimeEntry = {
+      id: timeEntry1Id,
+      orgId,
+      matterId: matter1Id,
+      userId,
+      description: "Drafted petition and reviewed legal precedents",
+      duration: 180,
+      rate: "5000",
+      isBillable: true,
+      startTime: new Date("2024-12-15T10:00:00Z"),
+      endTime: new Date("2024-12-15T13:00:00Z"),
+      metadata: {},
+      isDeleted: false,
+      createdAt: new Date("2024-12-15"),
+    };
+    this.timeEntries.set(timeEntry1Id, timeEntry1);
+
+    const timeEntry2Id = randomUUID();
+    const timeEntry2: TimeEntry = {
+      id: timeEntry2Id,
+      orgId,
+      matterId: matter1Id,
+      userId,
+      description: "Court appearance and arguments",
+      duration: 120,
+      rate: "8000",
+      isBillable: true,
+      startTime: new Date("2024-12-20T11:00:00Z"),
+      endTime: new Date("2024-12-20T13:00:00Z"),
+      metadata: {},
+      isDeleted: false,
+      createdAt: new Date("2024-12-20"),
+    };
+    this.timeEntries.set(timeEntry2Id, timeEntry2);
+
+    // Create demo expenses
+    const expense1Id = randomUUID();
+    const expense1: Expense = {
+      id: expense1Id,
+      orgId,
+      matterId: matter1Id,
+      userId,
+      category: "Court Fees",
+      description: "Filing fees for petition",
+      amount: "2500",
+      tax: "0",
+      receipt: null,
+      date: new Date("2024-12-10"),
+      isBillable: true,
+      metadata: {},
+      isDeleted: false,
+      createdAt: new Date("2024-12-10"),
+    };
+    this.expenses.set(expense1Id, expense1);
+
+    const expense2Id = randomUUID();
+    const expense2: Expense = {
+      id: expense2Id,
+      orgId,
+      matterId: matter1Id,
+      userId,
+      category: "Travel",
+      description: "Travel to court for hearing",
+      amount: "1500",
+      tax: "0",
+      receipt: null,
+      date: new Date("2024-12-20"),
+      isBillable: true,
+      metadata: {},
+      isDeleted: false,
+      createdAt: new Date("2024-12-20"),
+    };
+    this.expenses.set(expense2Id, expense2);
   }
 
   // Organizations
@@ -741,6 +820,8 @@ export class DbStorage implements IStorage {
         name: "Kumar & Associates",
         type: "chambers",
         bcisafeMode: true,
+        state: "Delhi",
+        gstNumber: "07AAAAA0000A1Z5",
         settings: {},
       })).returning();
 
@@ -820,6 +901,7 @@ export class DbStorage implements IStorage {
         email: "manoj.s@example.com",
         phone: "+91 98765 43210",
         address: "123 Main Street, Delhi",
+        state: "Delhi",
         panNumber: "ABCDE1234F",
         aadharNumber: null,
         metadata: {},
@@ -838,6 +920,62 @@ export class DbStorage implements IStorage {
         resolvedAt: null,
         metadata: {},
       }));
+
+      await db.insert(timeEntries).values([
+        cleanData({
+          orgId: org.id,
+          matterId: matter1.id,
+          userId: user.id,
+          description: "Drafted petition and reviewed legal precedents",
+          duration: 180,
+          rate: "5000",
+          isBillable: true,
+          startTime: new Date("2024-12-15T10:00:00Z"),
+          endTime: new Date("2024-12-15T13:00:00Z"),
+          metadata: {},
+        }),
+        cleanData({
+          orgId: org.id,
+          matterId: matter1.id,
+          userId: user.id,
+          description: "Court appearance and arguments",
+          duration: 120,
+          rate: "8000",
+          isBillable: true,
+          startTime: new Date("2024-12-20T11:00:00Z"),
+          endTime: new Date("2024-12-20T13:00:00Z"),
+          metadata: {},
+        })
+      ]);
+
+      await db.insert(expenses).values([
+        cleanData({
+          orgId: org.id,
+          matterId: matter1.id,
+          userId: user.id,
+          category: "Court Fees",
+          description: "Filing fees for petition",
+          amount: "2500",
+          tax: "0",
+          receipt: null,
+          date: new Date("2024-12-10"),
+          isBillable: true,
+          metadata: {},
+        }),
+        cleanData({
+          orgId: org.id,
+          matterId: matter1.id,
+          userId: user.id,
+          category: "Travel",
+          description: "Travel to court for hearing",
+          amount: "1500",
+          tax: "0",
+          receipt: null,
+          date: new Date("2024-12-20"),
+          isBillable: true,
+          metadata: {},
+        })
+      ]);
 
       console.log("Database seeded successfully");
     } catch (error) {

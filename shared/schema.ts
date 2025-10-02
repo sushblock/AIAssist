@@ -9,6 +9,8 @@ export const organizations = pgTable("organizations", {
   name: text("name").notNull(),
   type: varchar("type", { length: 50 }).notNull(), // "solo", "chambers", "firm"
   bcisafeMode: boolean("bci_safe_mode").default(true),
+  state: text("state"),
+  gstNumber: text("gst_number"),
   settings: jsonb("settings"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -65,6 +67,7 @@ export const parties = pgTable("parties", {
   email: text("email"),
   phone: text("phone"),
   address: text("address"),
+  state: text("state"),
   panNumber: text("pan_number"),
   aadharNumber: text("aadhar_number"),
   metadata: jsonb("metadata"),
