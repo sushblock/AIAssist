@@ -4,56 +4,60 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(210, 40%, 97%);
-  --foreground: hsl(222, 47%, 11%);
-  --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(222, 47%, 11%);
-  --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(222, 47%, 11%);
-  --primary: hsl(220, 85%, 35%);
-  --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(219, 32%, 55%);
-  --secondary-foreground: hsl(0, 0%, 100%);
-  --muted: hsl(210, 40%, 96%);
-  --muted-foreground: hsl(215, 16%, 47%);
-  --accent: hsl(210, 70%, 52%);
-  --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(0, 72%, 51%);
-  --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(214, 32%, 91%);
-  --input: hsl(214, 32%, 91%);
-  --ring: hsl(220, 85%, 35%);
-  --success: hsl(142, 71%, 45%);
-  --warning: hsl(38, 92%, 54%);
-  --warning-foreground: hsl(222, 47%, 11%);
-  --radius: 0.5rem;
+  /* refined neutral background and accessible foreground */
+  --background: 210 32% 98%;
+  --foreground: 222 22% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 22% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 22% 12%;
+  /* modern, slightly desaturated blue primary */
+  --primary: 215 80% 42%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 14% 46%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 210 30% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 200 80% 42%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 355 65% 52%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 32% 91%;
+  --input: 214 32% 96%;
+  --ring: 215 80% 42%;
+  --success: 142 71% 45%;
+  --warning: 38 92% 54%;
+  --warning-foreground: 222 47% 11%;
+  --radius: 0.625rem;
   --font-sans: 'Inter', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+  /* layout tokens */
+  --container-max: 1200px;
 }
 
 .dark {
-  --background: hsl(222, 47%, 11%);
-  --foreground: hsl(210, 40%, 98%);
-  --card: hsl(217, 33%, 17%);
-  --card-foreground: hsl(210, 40%, 98%);
-  --popover: hsl(217, 33%, 17%);
-  --popover-foreground: hsl(210, 40%, 98%);
-  --primary: hsl(220, 85%, 45%);
-  --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(219, 18%, 45%);
-  --secondary-foreground: hsl(210, 40%, 98%);
-  --muted: hsl(217, 33%, 22%);
-  --muted-foreground: hsl(215, 20%, 65%);
-  --accent: hsl(210, 70%, 60%);
-  --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(0, 72%, 51%);
-  --destructive-foreground: hsl(0, 0%, 100%);
-  --border: hsl(217, 33%, 25%);
-  --input: hsl(217, 33%, 25%);
-  --ring: hsl(220, 85%, 45%);
-  --success: hsl(142, 71%, 45%);
-  --warning: hsl(38, 92%, 54%);
-  --warning-foreground: hsl(222, 47%, 11%);
+  --background: 222 47% 11%;
+  --foreground: 210 40% 98%;
+  --card: 217 33% 17%;
+  --card-foreground: 210 40% 98%;
+  --popover: 217 33% 17%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 220 85% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 219 18% 45%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 22%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 210 70% 60%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 217 33% 25%;
+  --input: 217 33% 25%;
+  --ring: 220 85% 45%;
+  --success: 142 71% 45%;
+  --warning: 38 92% 54%;
+  --warning-foreground: 222 47% 11%;
 }
 
 @layer base {
@@ -81,7 +85,7 @@
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-semibold ring-offset-background transition-colors transform-gpu will-change-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
   }
 
   .btn-sm {
@@ -89,7 +93,7 @@
   }
 
   .btn-primary {
-    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+    @apply bg-primary text-primary-foreground hover:bg-primary/90 shadow-md dark:shadow-none;
   }
 
   .btn-secondary {
@@ -105,7 +109,7 @@
   }
 
   .input {
-    @apply flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .badge {
@@ -137,7 +141,21 @@
   }
 
   .card {
-    @apply rounded-lg border bg-card text-card-foreground shadow-sm;
+    @apply rounded-lg border bg-card text-card-foreground shadow-sm p-4;
+  }
+
+  /* container helper for consistent page widths */
+  .container {
+    max-width: var(--container-max);
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  /* stronger subtle elevation for panels */
+  .panel {
+    @apply rounded-lg bg-card border border-input shadow-md p-4;
   }
 
   .skeleton {
