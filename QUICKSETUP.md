@@ -79,6 +79,7 @@ You should see:
 
 ```bash
 # Start development server
+$env:DATABASE_URL = 'postgresql://USER:PASSWORD@HOST:PORT/DATABASE'
 npm run dev
 ```
 
