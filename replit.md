@@ -21,6 +21,27 @@ Preferred communication style: Simple, everyday language.
   - Invoice status tracking (draft/sent/paid/overdue)
 - **Schema Enhancements**: Added state and gstNumber fields to organizations and parties for GST compliance
 
+## October 2025 - PDF Validation Toolkit
+- **PDF Validation Service**: Court filing compliance assistant (`server/services/pdf-validation.ts`) with:
+  - Margin validation (1-1.5 inch Indian court standards) using heuristic analysis
+  - Font validation recommendations (Times New Roman, Arial, Courier New, Georgia, Verdana)
+  - Standards check (A4 page size, portrait orientation, file size limits)
+  - Validation report generation with errors/warnings classification
+- **Bates Numbering**: Fully functional sequential page numbering for court filing with:
+  - Configurable prefix/suffix (e.g., "DOC-0001-PG")
+  - Multiple position options (top/bottom, left/center/right)
+  - PDF download with embedded Bates numbers
+- **API Endpoints**: 
+  - POST `/api/pdf/validate` - PDF compliance validation
+  - POST `/api/pdf/add-bates` - Bates numbering application
+- **Documents UI Enhancement**: Professional validation cards with:
+  - PDF upload and validation workflow
+  - Detailed validation results dialog (errors, warnings, full report)
+  - Bates numbering configuration dialog with preview
+  - Download functionality for processed PDFs
+- **Libraries**: pdf-lib for PDF manipulation, pdf-parse for content extraction
+- **Important Note**: Positioned as "PDF Validation Assistant" - provides guidance and best practices but not strict compliance enforcement due to library limitations in content-box analysis and embedded font inspection
+
 # System Architecture
 
 ## Frontend Architecture
@@ -87,6 +108,7 @@ The schema includes comprehensive legal practice entities:
 - Separated business logic into dedicated services
 - ECourtService for eCourts API integration
 - AIAgentService with OllamaService for AI-powered analysis
+- PDFValidationService for court filing compliance checks and Bates numbering
 - DbStorage class implementing IStorage with full PostgreSQL persistence using Drizzle ORM
 
 ## External Dependencies
@@ -128,6 +150,12 @@ The schema includes comprehensive legal practice entities:
 - date-fns for date manipulation and formatting
 - IST (Indian Standard Time) timezone handling
 - Relative date formatting for user-friendly displays
+
+**PDF Processing:**
+- pdf-lib for PDF manipulation and Bates numbering
+- pdf-parse for PDF content extraction and validation
+- Court filing compliance checking (margin, font, standards validation)
+- Automated Bates numbering with configurable formatting
 
 ## Billing & Financial Management
 
